@@ -8,7 +8,7 @@
 //! presets for the canonical chess shuffle variants (Chess960,
 //! Chess-2880, full shuffle).
 //!
-//! # Quick start
+//! # Quick start — chess presets
 //!
 //! ```
 //! use chess_startpos_rs::chess;
@@ -16,6 +16,28 @@
 //! assert_eq!(chess::shuffle().count(), 5040);
 //! assert_eq!(chess::chess_2880().count(), 2880);
 //! assert_eq!(chess::chess_960().count(), 960);
+//! ```
+//!
+//! # Custom piece kinds and boards
+//!
+//! The chess module is a convenience layer; the core
+//! ([`Constraint<P>`] / [`Problem<P>`]) is generic over your own piece
+//! kind and board size.
+//!
+//! ```
+//! use chess_startpos_rs::{Constraint, Problem, SquareColor};
+//!
+//! #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+//! enum Tile { A, B }
+//!
+//! let problem = Problem {
+//!     num_squares: 3,
+//!     square_colors: vec![SquareColor::Light; 3],
+//!     pieces: vec![Tile::A, Tile::A, Tile::B],
+//!     constraint: Constraint::At { piece: Tile::B, square: 1 },
+//! };
+//! assert_eq!(problem.count(), 1);
+//! assert_eq!(problem.at(0), Some(vec![Tile::A, Tile::B, Tile::A]));
 //! ```
 
 #![warn(missing_docs)]
