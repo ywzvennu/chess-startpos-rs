@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Round-5 final polish
+
+- Documented the empty-vec semantics on `Constraint::And` and
+  `Constraint::Or`: `And(vec![])` is vacuously **true** (the natural
+  always-true constraint); `Or(vec![])` is vacuously **false**.
+  Matches Rust's `iter().all() / iter().any()` and standard
+  identity-element semantics.
+- `Problem::dedup_alphabet` and `Problem::validate` use a `HashSet<P>`
+  for membership checks instead of `Vec::contains`. O(n) instead of
+  O(n²) — invisible for chess (5 kinds) but matters for larger
+  alphabets.
+- New unit test exercising all six `CountOp` variants
+  (`Eq` / `NotEq` / `Lt` / `Le` / `Gt` / `Ge`) end-to-end against the
+  same alphabet, asserting the expected populations.
+
 ### Round-4 polish
 
 - `Cargo.toml` keywords: dropped weak `shuffle` and `starting-position`;

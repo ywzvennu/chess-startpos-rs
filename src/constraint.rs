@@ -173,8 +173,17 @@ pub enum Constraint<P, C = SquareColor> {
         offset: i32,
     },
     /// Logical AND: all child constraints must hold.
+    ///
+    /// `And(vec![])` is vacuously **true** (empty conjunction).
+    /// `Constraint::And(vec![])` is the natural "always-true"
+    /// constraint when you want to construct a problem with no
+    /// filtering beyond the alphabet and counts.
     And(Vec<Constraint<P, C>>),
     /// Logical OR: at least one child constraint must hold.
+    ///
+    /// `Or(vec![])` is vacuously **false** (empty disjunction).
+    /// Use [`Constraint::And`] with an empty vector for the
+    /// always-true constraint instead.
     Or(Vec<Constraint<P, C>>),
     /// Logical NOT: child constraint must not hold.
     Not(Box<Constraint<P, C>>),
