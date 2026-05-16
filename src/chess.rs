@@ -212,6 +212,183 @@ pub fn chess_960() -> Problem<Piece> {
     }
 }
 
+/// Canonical Chess960 starting-position identifier (SP-ID).
+///
+/// The official FIDE encoding maps each of the 960 legal Chess960
+/// arrangements to an integer `0..=959`. The standard FIDE starting
+/// position is SP-ID `518`. The encoding is `((KN · 6 + Q) · 4 + DB) · 4 + LB`
+/// where:
+///
+/// - `LB` (0–3) — index of the light-square bishop among files b/d/f/h.
+/// - `DB` (0–3) — index of the dark-square bishop among files a/c/e/g.
+/// - `Q` (0–5) — index of the queen among the six non-bishop squares.
+/// - `KN` (0–9) — index of the knight pair among the 10 unordered
+///   placements on the five non-bishop, non-queen squares.
+///
+/// The remaining three squares are filled rook–king–rook from left to
+/// right, which automatically satisfies the king-between-rooks rule.
+///
+/// This module honours the canonical encoding, so SP-IDs round-trip
+/// with other chess software (Stockfish, Lichess, python-chess, ...).
+///
+/// Note: [`chess_960`]'s `at(N)` returns the arrangement at lexicographic
+/// index `N`, not at SP-ID `N`. Use [`sp_id::at`] to look up by SP-ID.
+pub mod sp_id {
+    use super::Piece;
+
+    /// Number of canonical Chess960 starting positions.
+    pub const COUNT: u32 = 960;
+
+    /// Knight-pair lookup: index `0..=9` to the 0-based positions of the
+    /// two knights among the five non-bishop, non-queen squares.
+    const KNIGHT_PAIRS: [(usize, usize); 10] = [
+        (0, 1),
+        (0, 2),
+        (0, 3),
+        (0, 4),
+        (1, 2),
+        (1, 3),
+        (1, 4),
+        (2, 3),
+        (2, 4),
+        (3, 4),
+    ];
+
+    const LIGHT_FILES: [usize; 4] = [1, 3, 5, 7];
+    const DARK_FILES: [usize; 4] = [0, 2, 4, 6];
+
+    /// Returns the back-rank arrangement at the given canonical SP-ID,
+    /// or `None` if `id >= 960`.
+    ///
+    /// ```
+    /// use chess_startpos_rs::chess::{self, sp_id, Piece, STANDARD_BACK_RANK};
+    ///
+    /// assert_eq!(sp_id::at(518), Some(STANDARD_BACK_RANK.to_vec()));
+    /// assert_eq!(sp_id::at(960), None);
+    /// # let _ = chess::Piece::King;
+    /// ```
+    #[must_use]
+    pub fn at(id: u32) -> Option<Vec<Piece>> {
+        if id >= COUNT {
+            return None;
+        }
+        let mut n = id;
+        let lb = (n % 4) as usize;
+        n /= 4;
+        let db = (n % 4) as usize;
+        n /= 4;
+        let q_idx = (n % 6) as usize;
+        n /= 6;
+        let kn_idx = n as usize;
+
+        let mut board: [Option<Piece>; 8] = [None; 8];
+        board[LIGHT_FILES[lb]] = Some(Piece::Bishop);
+        board[DARK_FILES[db]] = Some(Piece::Bishop);
+
+        let empty_after_bishops: Vec<usize> = (0..8).filter(|i| board[*i].is_none()).collect();
+        board[empty_after_bishops[q_idx]] = Some(Piece::Queen);
+
+        let empty_after_queen: Vec<usize> = (0..8).filter(|i| board[*i].is_none()).collect();
+        let (kn_a, kn_b) = KNIGHT_PAIRS[kn_idx];
+        board[empty_after_queen[kn_a]] = Some(Piece::Knight);
+        board[empty_after_queen[kn_b]] = Some(Piece::Knight);
+
+        let empty_last: Vec<usize> = (0..8).filter(|i| board[*i].is_none()).collect();
+        board[empty_last[0]] = Some(Piece::Rook);
+        board[empty_last[1]] = Some(Piece::King);
+        board[empty_last[2]] = Some(Piece::Rook);
+
+        Some(board.iter().map(|p| p.expect("filled")).collect())
+    }
+
+    /// Returns the canonical SP-ID for an 8-square back-rank arrangement,
+    /// or `None` if the arrangement is not a valid Chess960 starting
+    /// position (wrong piece multiset, bishops on same colour, king not
+    /// strictly between the rooks, ...).
+    ///
+    /// `at` and `of` are inverses: `of(&at(id).unwrap()) == Some(id)` for
+    /// all `id < 960`.
+    ///
+    /// ```
+    /// use chess_startpos_rs::chess::{sp_id, STANDARD_BACK_RANK};
+    ///
+    /// assert_eq!(sp_id::of(&STANDARD_BACK_RANK), Some(518));
+    /// ```
+    #[must_use]
+    pub fn of(arrangement: &[Piece]) -> Option<u32> {
+        if arrangement.len() != 8 {
+            return None;
+        }
+
+        let bishops: Vec<usize> = arrangement
+            .iter()
+            .enumerate()
+            .filter_map(|(i, p)| (*p == Piece::Bishop).then_some(i))
+            .collect();
+        if bishops.len() != 2 {
+            return None;
+        }
+        let (light_sq, dark_sq) = if bishops[0] % 2 == 1 {
+            (bishops[0], bishops[1])
+        } else {
+            (bishops[1], bishops[0])
+        };
+        if light_sq % 2 != 1 || dark_sq % 2 != 0 {
+            return None;
+        }
+        let lb = LIGHT_FILES.iter().position(|&x| x == light_sq)?;
+        let db = DARK_FILES.iter().position(|&x| x == dark_sq)?;
+
+        let queen = arrangement.iter().position(|p| *p == Piece::Queen)?;
+        if arrangement.iter().filter(|p| **p == Piece::Queen).count() != 1 {
+            return None;
+        }
+        let empty_after_bishops: Vec<usize> = (0..8)
+            .filter(|i| arrangement[*i] != Piece::Bishop)
+            .collect();
+        let q_idx = empty_after_bishops.iter().position(|&x| x == queen)?;
+
+        let knight_positions: Vec<usize> = arrangement
+            .iter()
+            .enumerate()
+            .filter_map(|(i, p)| (*p == Piece::Knight).then_some(i))
+            .collect();
+        if knight_positions.len() != 2 {
+            return None;
+        }
+        let empty_after_queen: Vec<usize> = (0..8)
+            .filter(|i| arrangement[*i] != Piece::Bishop && arrangement[*i] != Piece::Queen)
+            .collect();
+        let kn_a = empty_after_queen
+            .iter()
+            .position(|&x| x == knight_positions[0])?;
+        let kn_b = empty_after_queen
+            .iter()
+            .position(|&x| x == knight_positions[1])?;
+        let kn_idx = KNIGHT_PAIRS.iter().position(|&p| p == (kn_a, kn_b))?;
+
+        let last_three: Vec<usize> = (0..8)
+            .filter(|i| {
+                arrangement[*i] != Piece::Bishop
+                    && arrangement[*i] != Piece::Queen
+                    && arrangement[*i] != Piece::Knight
+            })
+            .collect();
+        if last_three.len() != 3 {
+            return None;
+        }
+        if arrangement[last_three[0]] != Piece::Rook
+            || arrangement[last_three[1]] != Piece::King
+            || arrangement[last_three[2]] != Piece::Rook
+        {
+            return None;
+        }
+
+        let id = ((kn_idx as u32 * 6 + q_idx as u32) * 4 + db as u32) * 4 + lb as u32;
+        Some(id)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -289,5 +466,82 @@ mod tests {
         });
         assert!(with_queen_on_d.count() > 0);
         assert!(with_queen_on_d.count() < chess_960().count());
+    }
+
+    #[test]
+    fn sp_id_518_is_standard_position() {
+        assert_eq!(sp_id::at(518), Some(STANDARD_BACK_RANK.to_vec()));
+        assert_eq!(sp_id::of(&STANDARD_BACK_RANK), Some(518));
+    }
+
+    #[test]
+    fn sp_id_at_out_of_range_returns_none() {
+        assert_eq!(sp_id::at(960), None);
+        assert_eq!(sp_id::at(u32::MAX), None);
+    }
+
+    #[test]
+    fn sp_id_roundtrip_over_full_range() {
+        for id in 0..sp_id::COUNT {
+            let arrangement = sp_id::at(id).expect("in range");
+            assert_eq!(arrangement.len(), 8);
+            assert_eq!(sp_id::of(&arrangement), Some(id), "round-trip {id}");
+        }
+    }
+
+    #[test]
+    fn sp_id_at_yields_valid_chess960_arrangements() {
+        // Every SP-ID position must pass the chess_960 constraints
+        // (bishops opposite colours, king strictly between rooks).
+        let problem = chess_960();
+        for id in 0..sp_id::COUNT {
+            let arrangement = sp_id::at(id).expect("in range");
+            assert!(
+                problem
+                    .constraint
+                    .evaluate(&arrangement, &problem.square_colors),
+                "SP-ID {id} violates chess_960 constraints: {arrangement:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn sp_id_of_rejects_invalid_arrangements() {
+        // Wrong length.
+        assert_eq!(sp_id::of(&[Piece::King; 4]), None);
+
+        // Same-colour bishops (both on light squares b1 and d1).
+        let mut bad = STANDARD_BACK_RANK.to_vec();
+        bad[1] = Piece::Bishop; // b1 = light
+        bad[2] = Piece::Knight; // c1 was bishop
+        assert_eq!(sp_id::of(&bad), None);
+
+        // King not strictly between rooks (king on left of both rooks).
+        // KRRBNN BQ with bishops on light file 3 and dark file 6,
+        // but king at file 0 is outside the rook pair on (1, 2).
+        let king_outside = vec![
+            Piece::King,
+            Piece::Rook,
+            Piece::Rook,
+            Piece::Bishop,
+            Piece::Knight,
+            Piece::Knight,
+            Piece::Bishop,
+            Piece::Queen,
+        ];
+        assert_eq!(sp_id::of(&king_outside), None);
+
+        // Wrong multiset (two queens, no king).
+        let two_queens = vec![
+            Piece::Rook,
+            Piece::Knight,
+            Piece::Bishop,
+            Piece::Queen,
+            Piece::Queen,
+            Piece::Bishop,
+            Piece::Knight,
+            Piece::Rook,
+        ];
+        assert_eq!(sp_id::of(&two_queens), None);
     }
 }

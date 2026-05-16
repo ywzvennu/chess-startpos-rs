@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   readable `Constraint::At` / `NotAt` square arguments.
 - `chess::file::of(letter)` helper converting a file letter
   (case-insensitive `a`–`h`) into its 0-based back-rank index.
+- `chess::sp_id::at(id)` and `chess::sp_id::of(arrangement)` implementing
+  the canonical Chess960 SP-ID bijection (`0..=959`), interoperable with
+  other chess software. The standard FIDE position is `sp_id::at(518)`.
 
 ## [0.1.0] — Initial release
 
