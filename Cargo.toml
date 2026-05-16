@@ -10,11 +10,15 @@ repository = "https://github.com/ywzvennu/chess-startpos-rs"
 homepage = "https://github.com/ywzvennu/chess-startpos-rs"
 documentation = "https://docs.rs/chess-startpos-rs"
 readme = "README.md"
-keywords = ["chess", "chess960", "fischer", "shuffle", "starting-position"]
+keywords = ["chess", "chess960", "fischer", "csp", "combinatorics"]
 categories = ["game-development"]
 exclude = [
     ".github/",
 ]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = []

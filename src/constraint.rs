@@ -150,6 +150,18 @@ pub enum Constraint<P, C = SquareColor> {
     /// squares is signed. Square indices are cast to `i32` before
     /// the subtraction, so boards with `num_squares > i32::MAX` are
     /// not supported by this constraint (chess uses 8).
+    ///
+    /// ```
+    /// use chess_startpos_rs::{chess, Constraint, CountOp};
+    ///
+    /// // King exactly two squares to the right of the queen.
+    /// let _ = Constraint::<chess::Piece>::Relative {
+    ///     lhs: (chess::Piece::King, 0),
+    ///     rhs: (chess::Piece::Queen, 0),
+    ///     op: CountOp::Eq,
+    ///     offset: 2,
+    /// };
+    /// ```
     Relative {
         /// Left-hand piece instance.
         lhs: (P, usize),
