@@ -40,9 +40,10 @@ assert_eq!(chess::chess_960().count(),    960);   // bishops opposite + king bet
 let pos = chess::chess_960().at(0).unwrap();
 
 // Look up by canonical Chess960 SP-ID (0..=959). SP-ID 518 is the
-// standard FIDE starting position. Round-trips with `chess::sp_id::of`.
-let standard = chess::sp_id::at(518).unwrap();
-assert_eq!(chess::sp_id::of(&standard), Some(518));
+// standard FIDE starting position. Round-trips with `sp_id_of`.
+let preset = chess::chess_960();
+let standard = preset.sp_id(518).unwrap();
+assert_eq!(preset.sp_id_of(&standard), Some(518));
 
 // Uniform random sampling, deterministic in the seed.
 let pos = chess::chess_960().sample(42).unwrap();

@@ -186,8 +186,12 @@ pub fn chess_2880() -> Problem<Piece> {
 /// Preset: bishops on opposite-colour squares plus king strictly
 /// between the two rooks. `count() == 960`. Equivalent to the
 /// Chess960 (Fischer Random) starting-position set.
+///
+/// Returns a [`Chess960Problem`] wrapper that exposes both lexicographic
+/// indexing ([`Chess960Problem::at`]) and the canonical Chess960 SP-ID
+/// bijection ([`Chess960Problem::sp_id`] / [`Chess960Problem::sp_id_of`]).
 #[must_use]
-pub fn chess_960() -> Problem<Piece> {
+pub fn chess_960() -> Chess960Problem {
     let (num_squares, square_colors) = back_rank_board();
     let constraint = Constraint::And(vec![
         Constraint::CountOnColor {
@@ -204,20 +208,36 @@ pub fn chess_960() -> Problem<Piece> {
         },
         Constraint::Order(vec![(Piece::Rook, 0), (Piece::King, 0), (Piece::Rook, 1)]),
     ]);
-    Problem {
-        num_squares,
-        square_colors,
-        pieces: back_rank_multiset(),
-        constraint,
+    Chess960Problem {
+        inner: Problem {
+            num_squares,
+            square_colors,
+            pieces: back_rank_multiset(),
+            constraint,
+        },
     }
 }
 
-/// Canonical Chess960 starting-position identifier (SP-ID).
+/// The Chess960 preset, returned by [`chess_960`].
 ///
-/// The official FIDE encoding maps each of the 960 legal Chess960
-/// arrangements to an integer `0..=959`. The standard FIDE starting
-/// position is SP-ID `518`. The encoding is `((KN · 6 + Q) · 4 + DB) · 4 + LB`
-/// where:
+/// Wraps a [`Problem<Piece>`] and adds the canonical Chess960 SP-ID
+/// bijection on top of the generic constraint-satisfaction surface.
+///
+/// The generic methods ([`at`](Self::at), [`iter`](Self::iter),
+/// [`sample`](Self::sample), [`count`](Self::count)) operate in
+/// **lexicographic** order over the sorted piece multiset, matching
+/// the rest of the crate. The Chess960-specific methods
+/// ([`sp_id`](Self::sp_id), [`sp_id_of`](Self::sp_id_of)) use the
+/// official FIDE numbering, which interoperates with Stockfish,
+/// Lichess, python-chess, and other chess software.
+///
+/// The standard FIDE starting position is `sp_id(518)`.
+pub struct Chess960Problem {
+    inner: Problem<Piece>,
+}
+
+/// The official encoding `((KN · 6 + Q) · 4 + DB) · 4 + LB` derives
+/// each Chess960 starting position from four sub-indices:
 ///
 /// - `LB` (0–3) — index of the light-square bishop among files b/d/f/h.
 /// - `DB` (0–3) — index of the dark-square bishop among files a/c/e/g.
@@ -227,49 +247,66 @@ pub fn chess_960() -> Problem<Piece> {
 ///
 /// The remaining three squares are filled rook–king–rook from left to
 /// right, which automatically satisfies the king-between-rooks rule.
-///
-/// This module honours the canonical encoding, so SP-IDs round-trip
-/// with other chess software (Stockfish, Lichess, python-chess, ...).
-///
-/// Note: [`chess_960`]'s `at(N)` returns the arrangement at lexicographic
-/// index `N`, not at SP-ID `N`. Use [`sp_id::at`] to look up by SP-ID.
-pub mod sp_id {
-    use super::Piece;
+const KNIGHT_PAIRS: [(usize, usize); 10] = [
+    (0, 1),
+    (0, 2),
+    (0, 3),
+    (0, 4),
+    (1, 2),
+    (1, 3),
+    (1, 4),
+    (2, 3),
+    (2, 4),
+    (3, 4),
+];
 
-    /// Number of canonical Chess960 starting positions.
+const LIGHT_FILES: [usize; 4] = [1, 3, 5, 7];
+const DARK_FILES: [usize; 4] = [0, 2, 4, 6];
+
+impl Chess960Problem {
+    /// Number of canonical Chess960 starting positions (always 960).
     pub const COUNT: u32 = 960;
 
-    /// Knight-pair lookup: index `0..=9` to the 0-based positions of the
-    /// two knights among the five non-bishop, non-queen squares.
-    const KNIGHT_PAIRS: [(usize, usize); 10] = [
-        (0, 1),
-        (0, 2),
-        (0, 3),
-        (0, 4),
-        (1, 2),
-        (1, 3),
-        (1, 4),
-        (2, 3),
-        (2, 4),
-        (3, 4),
-    ];
+    /// Number of arrangements satisfying the constraint. Always 960.
+    #[must_use]
+    pub fn count(&self) -> u64 {
+        self.inner.count()
+    }
 
-    const LIGHT_FILES: [usize; 4] = [1, 3, 5, 7];
-    const DARK_FILES: [usize; 4] = [0, 2, 4, 6];
+    /// Streams all 960 arrangements in canonical lexicographic order.
+    pub fn iter(&self) -> impl Iterator<Item = Vec<Piece>> + '_ {
+        self.inner.iter()
+    }
 
-    /// Returns the back-rank arrangement at the given canonical SP-ID,
-    /// or `None` if `id >= 960`.
+    /// Returns the lexicographic-`index`-th arrangement, or `None` if
+    /// `index >= 960`.
+    ///
+    /// For canonical SP-ID-keyed access use [`Self::sp_id`] instead;
+    /// `at(N)` and `sp_id(N)` do **not** return the same position for
+    /// any given `N`.
+    #[must_use]
+    pub fn at(&self, index: u64) -> Option<Vec<Piece>> {
+        self.inner.at(index)
+    }
+
+    /// Returns a uniformly-random arrangement, deterministic in `seed`.
+    #[must_use]
+    pub fn sample(&self, seed: u64) -> Option<Vec<Piece>> {
+        self.inner.sample(seed)
+    }
+
+    /// Returns the back-rank arrangement at the given canonical
+    /// Chess960 SP-ID, or `None` if `id >= 960`.
     ///
     /// ```
-    /// use chess_startpos_rs::chess::{self, sp_id, Piece, STANDARD_BACK_RANK};
+    /// use chess_startpos_rs::chess::{self, STANDARD_BACK_RANK};
     ///
-    /// assert_eq!(sp_id::at(518), Some(STANDARD_BACK_RANK.to_vec()));
-    /// assert_eq!(sp_id::at(960), None);
-    /// # let _ = chess::Piece::King;
+    /// assert_eq!(chess::chess_960().sp_id(518), Some(STANDARD_BACK_RANK.to_vec()));
+    /// assert_eq!(chess::chess_960().sp_id(960), None);
     /// ```
     #[must_use]
-    pub fn at(id: u32) -> Option<Vec<Piece>> {
-        if id >= COUNT {
+    pub fn sp_id(&self, id: u32) -> Option<Vec<Piece>> {
+        if id >= Self::COUNT {
             return None;
         }
         let mut n = id;
@@ -306,16 +343,17 @@ pub mod sp_id {
     /// position (wrong piece multiset, bishops on same colour, king not
     /// strictly between the rooks, ...).
     ///
-    /// `at` and `of` are inverses: `of(&at(id).unwrap()) == Some(id)` for
-    /// all `id < 960`.
+    /// `sp_id` and `sp_id_of` are inverses:
+    /// `chess_960().sp_id_of(&chess_960().sp_id(id).unwrap()) == Some(id)`
+    /// for all `id < 960`.
     ///
     /// ```
-    /// use chess_startpos_rs::chess::{sp_id, STANDARD_BACK_RANK};
+    /// use chess_startpos_rs::chess::{self, STANDARD_BACK_RANK};
     ///
-    /// assert_eq!(sp_id::of(&STANDARD_BACK_RANK), Some(518));
+    /// assert_eq!(chess::chess_960().sp_id_of(&STANDARD_BACK_RANK), Some(518));
     /// ```
     #[must_use]
-    pub fn of(arrangement: &[Piece]) -> Option<u32> {
+    pub fn sp_id_of(&self, arrangement: &[Piece]) -> Option<u32> {
         if arrangement.len() != 8 {
             return None;
         }
@@ -386,6 +424,21 @@ pub mod sp_id {
 
         let id = ((kn_idx as u32 * 6 + q_idx as u32) * 4 + db as u32) * 4 + lb as u32;
         Some(id)
+    }
+
+    /// Adds an extra constraint, returning the underlying generic
+    /// [`Problem<Piece>`]. The Chess960 SP-ID bijection no longer
+    /// applies to the narrowed problem, so the result is the generic
+    /// type, not another `Chess960Problem`.
+    #[must_use]
+    pub fn with_constraint(self, c: Constraint<Piece>) -> Problem<Piece> {
+        self.inner.with_constraint(c)
+    }
+
+    /// Consumes self and returns the underlying generic problem.
+    #[must_use]
+    pub fn into_problem(self) -> Problem<Piece> {
+        self.inner
     }
 }
 
@@ -465,37 +518,40 @@ mod tests {
             square: file::D,
         });
         assert!(with_queen_on_d.count() > 0);
-        assert!(with_queen_on_d.count() < chess_960().count());
+        assert!(with_queen_on_d.count() < 960);
     }
 
     #[test]
     fn sp_id_518_is_standard_position() {
-        assert_eq!(sp_id::at(518), Some(STANDARD_BACK_RANK.to_vec()));
-        assert_eq!(sp_id::of(&STANDARD_BACK_RANK), Some(518));
+        let preset = chess_960();
+        assert_eq!(preset.sp_id(518), Some(STANDARD_BACK_RANK.to_vec()));
+        assert_eq!(preset.sp_id_of(&STANDARD_BACK_RANK), Some(518));
     }
 
     #[test]
-    fn sp_id_at_out_of_range_returns_none() {
-        assert_eq!(sp_id::at(960), None);
-        assert_eq!(sp_id::at(u32::MAX), None);
+    fn sp_id_out_of_range_returns_none() {
+        let preset = chess_960();
+        assert_eq!(preset.sp_id(960), None);
+        assert_eq!(preset.sp_id(u32::MAX), None);
     }
 
     #[test]
     fn sp_id_roundtrip_over_full_range() {
-        for id in 0..sp_id::COUNT {
-            let arrangement = sp_id::at(id).expect("in range");
+        let preset = chess_960();
+        for id in 0..Chess960Problem::COUNT {
+            let arrangement = preset.sp_id(id).expect("in range");
             assert_eq!(arrangement.len(), 8);
-            assert_eq!(sp_id::of(&arrangement), Some(id), "round-trip {id}");
+            assert_eq!(preset.sp_id_of(&arrangement), Some(id), "round-trip {id}");
         }
     }
 
     #[test]
-    fn sp_id_at_yields_valid_chess960_arrangements() {
-        // Every SP-ID position must pass the chess_960 constraints
-        // (bishops opposite colours, king strictly between rooks).
-        let problem = chess_960();
-        for id in 0..sp_id::COUNT {
-            let arrangement = sp_id::at(id).expect("in range");
+    fn sp_id_yields_valid_chess960_arrangements() {
+        // Every SP-ID position must pass the chess_960 constraints.
+        let preset = chess_960();
+        let problem = preset.inner.clone();
+        for id in 0..Chess960Problem::COUNT {
+            let arrangement = preset.sp_id(id).expect("in range");
             assert!(
                 problem
                     .constraint
@@ -507,18 +563,18 @@ mod tests {
 
     #[test]
     fn sp_id_of_rejects_invalid_arrangements() {
+        let preset = chess_960();
+
         // Wrong length.
-        assert_eq!(sp_id::of(&[Piece::King; 4]), None);
+        assert_eq!(preset.sp_id_of(&[Piece::King; 4]), None);
 
-        // Same-colour bishops (both on light squares b1 and d1).
+        // Same-colour bishops (both on light squares b1 and f1).
         let mut bad = STANDARD_BACK_RANK.to_vec();
-        bad[1] = Piece::Bishop; // b1 = light
-        bad[2] = Piece::Knight; // c1 was bishop
-        assert_eq!(sp_id::of(&bad), None);
+        bad[1] = Piece::Bishop;
+        bad[2] = Piece::Knight;
+        assert_eq!(preset.sp_id_of(&bad), None);
 
-        // King not strictly between rooks (king on left of both rooks).
-        // KRRBNN BQ with bishops on light file 3 and dark file 6,
-        // but king at file 0 is outside the rook pair on (1, 2).
+        // King not strictly between rooks.
         let king_outside = vec![
             Piece::King,
             Piece::Rook,
@@ -529,7 +585,7 @@ mod tests {
             Piece::Bishop,
             Piece::Queen,
         ];
-        assert_eq!(sp_id::of(&king_outside), None);
+        assert_eq!(preset.sp_id_of(&king_outside), None);
 
         // Wrong multiset (two queens, no king).
         let two_queens = vec![
@@ -542,6 +598,6 @@ mod tests {
             Piece::Knight,
             Piece::Rook,
         ];
-        assert_eq!(sp_id::of(&two_queens), None);
+        assert_eq!(preset.sp_id_of(&two_queens), None);
     }
 }

@@ -13,9 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   readable `Constraint::At` / `NotAt` square arguments.
 - `chess::file::of(letter)` helper converting a file letter
   (case-insensitive `a`–`h`) into its 0-based back-rank index.
-- `chess::sp_id::at(id)` and `chess::sp_id::of(arrangement)` implementing
-  the canonical Chess960 SP-ID bijection (`0..=959`), interoperable with
-  other chess software. The standard FIDE position is `sp_id::at(518)`.
+- `chess::chess_960()` now returns a `Chess960Problem` wrapper that
+  exposes the canonical Chess960 SP-ID bijection (`0..=959`) alongside
+  the generic constraint-satisfaction surface. Methods:
+  - `chess_960().sp_id(id)` — arrangement at canonical SP-ID. Standard
+    FIDE position is `sp_id(518)`.
+  - `chess_960().sp_id_of(&arr)` — reverse lookup, `None` if `arr`
+    isn't a valid Chess960 starting position.
+  - `chess_960().at(N)` / `iter()` / `sample(seed)` — lexicographic
+    semantics (unchanged), interoperable with other chess software via
+    the SP-ID bijection.
 
 ## [0.1.0] — Initial release
 
