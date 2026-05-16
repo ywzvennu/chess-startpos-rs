@@ -442,12 +442,12 @@ impl Chess960Problem {
         Some(id)
     }
 
-    /// Adds an extra constraint, returning the underlying generic
-    /// [`Problem<Piece>`]. The Chess960 SP-ID bijection no longer
-    /// applies to the narrowed problem, so the result is the generic
-    /// type, not another `Chess960Problem`.
+    /// Returns the underlying generic [`Problem<Piece>`] with `c`
+    /// added via AND-composition. The Chess960 SP-ID bijection no
+    /// longer applies to the narrowed problem, so the result is the
+    /// generic type, not another `Chess960Problem`.
     #[must_use]
-    pub fn with_constraint(self, c: Constraint<Piece>) -> Problem<Piece> {
+    pub fn with_constraint(&self, c: Constraint<Piece>) -> Problem<Piece> {
         self.inner.with_constraint(c)
     }
 

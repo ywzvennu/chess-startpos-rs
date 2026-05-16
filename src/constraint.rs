@@ -66,10 +66,6 @@ impl CountOp {
 pub enum Constraint<P, C = SquareColor> {
     /// Number of occurrences of `piece` across the arrangement
     /// satisfies `(op, value)`.
-    ///
-    /// Constraints of the form `Count { piece, op: Eq, value }`
-    /// double as the way to declare the multiset's multiplicity for
-    /// each alphabet member — see the crate-level docs.
     Count {
         /// Piece kind to count.
         piece: P,

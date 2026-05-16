@@ -74,6 +74,7 @@ your own board. The constraint vocabulary:
 | `At { piece, square }` | `piece` must occupy `square`. |
 | `NotAt { piece, square }` | `piece` must not occupy `square`. |
 | `Order(vec)` | The indexed instances listed must appear in strictly increasing square order. `[(R, 0), (K, 0), (R, 1)]` reads as `rook[0] < king[0] < rook[1]`. |
+| `Relative { lhs, rhs, op, offset }` | Signed positional offset between two specific piece instances: `(lhs_square − rhs_square) op offset`. `lhs = (King, 0)`, `rhs = (Queen, 0)`, `op = Eq`, `offset = 2` reads as "king is exactly 2 squares right of queen". |
 
 And three combinators:
 
@@ -90,8 +91,9 @@ And three combinators:
 The `chess` module is a convenience layer; the core
 (`Constraint<P, C>` / `Problem<P, C>`) is generic over **both** the
 piece kind and the colour kind. `pieces` is the *alphabet* — a set of
-distinct kinds — not a multiset with repetition. Multiplicities come
-from `Constraint::Count { piece, Eq, value }` entries.
+distinct kinds. Constraints filter the arrangements; how many of each
+kind you want is just another constraint
+(`Constraint::Count { piece, Eq, value }`).
 
 ```rust
 use chess_startpos_rs::{Constraint, CountOp, Problem, SquareColor};
@@ -156,10 +158,10 @@ let problem: Problem<Bead, Zone> = Problem {
 };
 ```
 
-If every alphabet member has a `Constraint::Count{Eq}` and the values
-sum to `num_squares`, the solver permutes that exact multiset (fast
-path). Otherwise it enumerates length-N sequences from the alphabet
-and filters — expressive but more expensive.
+The solver enumerates length-`num_squares` sequences from the alphabet
+and filters by the constraint tree. When every alphabet member has a
+`Constraint::Count { Eq, n }` and the values sum to `num_squares`, it
+takes a fast path that walks distinct multiset permutations directly.
 
 For a longer worked example, see [`examples/custom.rs`](examples/custom.rs)
 or run `cargo run --example custom`.

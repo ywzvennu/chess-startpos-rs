@@ -31,3 +31,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.80.0
       - run: cargo check --all-features --lib
       - run: cargo check --no-default-features --lib
+
+  audit:
+    name: cargo-audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install --locked cargo-audit
+      - run: cargo audit
