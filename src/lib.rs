@@ -66,7 +66,7 @@ mod problem;
 pub mod chess;
 
 pub use constraint::{Constraint, CountOp, SquareColor};
-pub use problem::Problem;
+pub use problem::{Problem, ProblemBuilder};
 
 /// Marker trait for piece kinds usable as the type parameter of
 /// [`Problem`] / [`Constraint`].

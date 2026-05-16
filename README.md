@@ -166,6 +166,30 @@ takes a fast path that walks distinct multiset permutations directly.
 For a longer worked example, see [`examples/custom.rs`](examples/custom.rs)
 or run `cargo run --example custom`.
 
+### Builder alternative
+
+`Problem` has both struct-literal and fluent-builder construction
+paths; pick whichever reads better. The builder accumulates
+constraints and AND-composes them at `build()` time:
+
+```rust
+use chess_startpos_rs::{Constraint, CountOp, Problem, SquareColor};
+
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+enum Card { Ace, King, Queen }
+
+let problem: Problem<Card> = Problem::builder()
+    .squares(6)
+    .alternating_colors(SquareColor::Light, SquareColor::Dark)
+    .pieces([Card::Ace, Card::King, Card::Queen])
+    .constraint(Constraint::Count { piece: Card::Ace,   op: CountOp::Eq, value: 2 })
+    .constraint(Constraint::Count { piece: Card::King,  op: CountOp::Eq, value: 2 })
+    .constraint(Constraint::Count { piece: Card::Queen, op: CountOp::Eq, value: 2 })
+    .build();
+
+assert_eq!(problem.count(), 90);
+```
+
 ## Solver
 
 For v0.1 the solver is hand-rolled: it iterates distinct multiset

@@ -37,6 +37,37 @@ pub struct Problem<P: PieceKind, C: ColorKind = SquareColor> {
 }
 
 impl<P: PieceKind, C: ColorKind> Problem<P, C> {
+    /// Returns a fresh empty [`ProblemBuilder`] for fluent
+    /// construction.
+    ///
+    /// ```
+    /// use chess_startpos_rs::{chess, Constraint, CountOp, Problem, SquareColor};
+    ///
+    /// let problem: Problem<chess::Piece> = Problem::builder()
+    ///     .squares(8)
+    ///     .alternating_colors(SquareColor::Dark, SquareColor::Light)
+    ///     .pieces([chess::Piece::King, chess::Piece::Queen])
+    ///     .constraint(Constraint::Count {
+    ///         piece: chess::Piece::King,
+    ///         op: CountOp::Eq,
+    ///         value: 1,
+    ///     })
+    ///     .constraint(Constraint::Count {
+    ///         piece: chess::Piece::Queen,
+    ///         op: CountOp::Eq,
+    ///         value: 7,
+    ///     })
+    ///     .build();
+    /// assert_eq!(problem.count(), 8); // 1 king × 8 placements over 7 queens
+    /// ```
+    ///
+    /// The struct-literal API ([`Problem`] is a regular public-fields
+    /// struct) remains a fully supported alternative.
+    #[must_use]
+    pub fn builder() -> ProblemBuilder<P, C> {
+        ProblemBuilder::new()
+    }
+
     /// Number of distinct arrangements satisfying the constraint.
     #[must_use]
     pub fn count(&self) -> u64 {
@@ -150,6 +181,141 @@ impl<P: PieceKind, C: ColorKind> Problem<P, C> {
         }
         multiset.sort();
         Some(multiset)
+    }
+}
+
+/// Fluent builder for [`Problem`].
+///
+/// Construct via [`Problem::builder`]. Every method consumes `self`
+/// and returns the updated builder, so calls chain. Finalise with
+/// [`ProblemBuilder::build`].
+///
+/// The builder is an alternative to direct struct-literal
+/// construction of `Problem`; both produce the same value.
+///
+/// ```
+/// use chess_startpos_rs::{Constraint, CountOp, Problem, SquareColor};
+///
+/// #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+/// enum Card { Ace, King, Queen }
+///
+/// let problem: Problem<Card> = Problem::builder()
+///     .squares(6)
+///     .alternating_colors(SquareColor::Light, SquareColor::Dark)
+///     .pieces([Card::Ace, Card::King, Card::Queen])
+///     .constraint(Constraint::Count { piece: Card::Ace,   op: CountOp::Eq, value: 2 })
+///     .constraint(Constraint::Count { piece: Card::King,  op: CountOp::Eq, value: 2 })
+///     .constraint(Constraint::Count { piece: Card::Queen, op: CountOp::Eq, value: 2 })
+///     .build();
+///
+/// assert_eq!(problem.count(), 90); // 6! / (2! · 2! · 2!)
+/// ```
+#[derive(Clone, Debug)]
+pub struct ProblemBuilder<P: PieceKind, C: ColorKind> {
+    num_squares: usize,
+    square_colors: Vec<C>,
+    pieces: Vec<P>,
+    constraints: Vec<Constraint<P, C>>,
+}
+
+impl<P: PieceKind, C: ColorKind> Default for ProblemBuilder<P, C> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<P: PieceKind, C: ColorKind> ProblemBuilder<P, C> {
+    /// Returns a fresh empty builder.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            num_squares: 0,
+            square_colors: Vec::new(),
+            pieces: Vec::new(),
+            constraints: Vec::new(),
+        }
+    }
+
+    /// Sets the board size.
+    #[must_use]
+    pub fn squares(mut self, n: usize) -> Self {
+        self.num_squares = n;
+        self
+    }
+
+    /// Sets `square_colors` to `colors`. The slice's length should
+    /// match `num_squares`; mismatch isn't a build-time error but
+    /// will produce empty results from the solver.
+    #[must_use]
+    pub fn colors(mut self, colors: Vec<C>) -> Self {
+        self.square_colors = colors;
+        self
+    }
+
+    /// Sets `square_colors` to a length-`num_squares` sequence
+    /// alternating between `first` (even indices) and `second` (odd
+    /// indices). Call after `.squares(n)`; otherwise produces an
+    /// empty colour vector.
+    #[must_use]
+    pub fn alternating_colors(mut self, first: C, second: C) -> Self
+    where
+        C: Copy,
+    {
+        self.square_colors = crate::alternating(self.num_squares, first, second);
+        self
+    }
+
+    /// Sets `square_colors` to a length-`num_squares` sequence with
+    /// every square coloured `c`. Call after `.squares(n)`.
+    #[must_use]
+    pub fn uniform_colors(mut self, c: C) -> Self
+    where
+        C: Copy,
+    {
+        self.square_colors = crate::uniform(self.num_squares, c);
+        self
+    }
+
+    /// Replaces the alphabet with `alphabet`. Duplicates are silently
+    /// deduplicated by the solver.
+    #[must_use]
+    pub fn pieces<I: IntoIterator<Item = P>>(mut self, alphabet: I) -> Self {
+        self.pieces = alphabet.into_iter().collect();
+        self
+    }
+
+    /// Appends `p` to the alphabet.
+    #[must_use]
+    pub fn piece(mut self, p: P) -> Self {
+        self.pieces.push(p);
+        self
+    }
+
+    /// Appends a constraint. Multiple calls AND-compose at
+    /// [`build`](Self::build) time.
+    #[must_use]
+    pub fn constraint(mut self, c: Constraint<P, C>) -> Self {
+        self.constraints.push(c);
+        self
+    }
+
+    /// Finalises into a [`Problem`]. The accumulated constraints are
+    /// wrapped in [`Constraint::And`] (a single constraint is wrapped
+    /// alone; zero constraints become `And(vec![])`, which is always
+    /// satisfied).
+    #[must_use]
+    pub fn build(self) -> Problem<P, C> {
+        let constraint = match self.constraints.len() {
+            0 => Constraint::And(Vec::new()),
+            1 => self.constraints.into_iter().next().expect("len == 1"),
+            _ => Constraint::And(self.constraints),
+        };
+        Problem {
+            num_squares: self.num_squares,
+            square_colors: self.square_colors,
+            pieces: self.pieces,
+            constraint,
+        }
     }
 }
 
@@ -771,6 +937,121 @@ mod tests {
         assert_eq!(problem.count(), 0);
         assert_eq!(problem.at(0), None);
         assert_eq!(problem.sample(0), None);
+    }
+
+    #[test]
+    fn builder_matches_struct_literal_on_chess_960() {
+        // Build the same problem two ways and assert they have the
+        // same population.
+        let from_preset = crate::chess::chess_960().into_problem();
+
+        use crate::chess::{back_rank_colors, Piece};
+        let from_builder: Problem<Piece> = Problem::builder()
+            .squares(8)
+            .colors(back_rank_colors())
+            .pieces([
+                Piece::King,
+                Piece::Queen,
+                Piece::Rook,
+                Piece::Bishop,
+                Piece::Knight,
+            ])
+            .constraint(Constraint::Count {
+                piece: Piece::King,
+                op: CountOp::Eq,
+                value: 1,
+            })
+            .constraint(Constraint::Count {
+                piece: Piece::Queen,
+                op: CountOp::Eq,
+                value: 1,
+            })
+            .constraint(Constraint::Count {
+                piece: Piece::Rook,
+                op: CountOp::Eq,
+                value: 2,
+            })
+            .constraint(Constraint::Count {
+                piece: Piece::Bishop,
+                op: CountOp::Eq,
+                value: 2,
+            })
+            .constraint(Constraint::Count {
+                piece: Piece::Knight,
+                op: CountOp::Eq,
+                value: 2,
+            })
+            .constraint(Constraint::CountOnColor {
+                piece: Piece::Bishop,
+                color: SquareColor::Light,
+                op: CountOp::Eq,
+                value: 1,
+            })
+            .constraint(Constraint::CountOnColor {
+                piece: Piece::Bishop,
+                color: SquareColor::Dark,
+                op: CountOp::Eq,
+                value: 1,
+            })
+            .constraint(Constraint::Order(vec![
+                (Piece::Rook, 0),
+                (Piece::King, 0),
+                (Piece::Rook, 1),
+            ]))
+            .build();
+
+        assert_eq!(from_builder.count(), from_preset.count());
+        assert_eq!(from_builder.count(), 960);
+    }
+
+    #[test]
+    fn builder_with_zero_constraints_is_and_empty() {
+        let problem: Problem<Tile> = Problem::builder()
+            .squares(3)
+            .alternating_colors(SquareColor::Light, SquareColor::Dark)
+            .pieces([Tile::A, Tile::B])
+            .build();
+        // Unconstrained Cartesian regime: 2^3 = 8.
+        assert_eq!(problem.count(), 8);
+        assert!(matches!(problem.constraint, Constraint::And(ref v) if v.is_empty()));
+    }
+
+    #[test]
+    fn builder_with_single_constraint_unwraps_and() {
+        let problem: Problem<Tile> = Problem::builder()
+            .squares(3)
+            .uniform_colors(SquareColor::Light)
+            .pieces([Tile::A, Tile::B])
+            .constraint(Constraint::At {
+                piece: Tile::A,
+                square: 0,
+            })
+            .build();
+        // A pinned at square 0, 2 choices on each remaining square → 4.
+        assert_eq!(problem.count(), 4);
+        // Single constraint is stored bare, not wrapped in And.
+        assert!(matches!(problem.constraint, Constraint::At { .. }));
+    }
+
+    #[test]
+    fn builder_piece_method_appends() {
+        let problem: Problem<Tile> = Problem::builder()
+            .squares(3)
+            .uniform_colors(SquareColor::Light)
+            .piece(Tile::A)
+            .piece(Tile::B)
+            .constraint(Constraint::Count {
+                piece: Tile::A,
+                op: CountOp::Eq,
+                value: 2,
+            })
+            .constraint(Constraint::Count {
+                piece: Tile::B,
+                op: CountOp::Eq,
+                value: 1,
+            })
+            .build();
+        assert_eq!(problem.count(), 3);
     }
 
     #[test]
