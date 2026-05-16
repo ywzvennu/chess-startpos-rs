@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Round-2 pre-tag cleanup
+
+- `Problem::with_constraint` and `Chess960Problem::with_constraint`
+  take `&self` instead of `self`, so callers no longer need to
+  pre-clone the problem to keep using it.
+- `Problem::sample` now does a single-pass reservoir sample
+  (Knuth-style) instead of iterating twice (once for `count`, once
+  for `nth`). Same uniform distribution, half the work.
+- `next_cartesian` in the unconstrained-regime hot path caches the
+  alphabet's position lookup in a `HashMap` instead of doing
+  `O(|alphabet|)` `.position()` each advance.
+- `chess::back_rank_colors()` and crate helpers `alternating` /
+  `uniform` were already added in the earlier reshape; this round
+  drops the "multiset declaration" framing from `Constraint::Count`
+  and the crate-level docs — `Count` is just one constraint among
+  many, and the `Count{Eq}` optimisation is an internal solver
+  detail.
+- `Cargo.toml`: added `homepage`.
+- README: constraint primitives table now includes `Relative`.
+- CI: new `cargo-audit` job runs on every push.
+- New `benches/presets.rs` (criterion) covers the four chess
+  presets' `count`, `sample`, SP-ID forward/reverse, and a 4⁶
+  Cartesian-fallback bench.
+- New tests: non-Eq `Count` as a filter, `Count{Eq}` inside `Or` is
+  not picked up by the fast path, empty alphabet and `num_squares == 0`
+  yield zero arrangements.
+
 ### Pre-publish API reshape
 
 The crate has not yet been published to crates.io. The [0.1.0] entry

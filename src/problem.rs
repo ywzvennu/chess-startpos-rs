@@ -1,6 +1,8 @@
 //! [`Problem`] — the constraint-satisfaction specification and its
 //! enumerate / count entry points.
 
+use std::collections::HashMap;
+
 use crate::{ColorKind, Constraint, PieceKind, SquareColor};
 
 /// A constraint-satisfaction problem: a fixed board (size + per-square
@@ -9,9 +11,7 @@ use crate::{ColorKind, Constraint, PieceKind, SquareColor};
 ///
 /// `pieces` is the **alphabet** — the set of distinct kinds available.
 /// Duplicate entries are silently deduplicated; first-appearance order
-/// is preserved. The multiset to permute is derived from
-/// [`Constraint::Count`] entries with `op = CountOp::Eq` keyed by
-/// alphabet members (see the crate-level docs).
+/// is preserved.
 ///
 /// `C` is the colour kind. The default is [`SquareColor`] — the
 /// binary light/dark partition used by chess. For N-way partitions
@@ -19,6 +19,9 @@ use crate::{ColorKind, Constraint, PieceKind, SquareColor};
 ///
 /// Solve by calling [`Problem::count`] for the population size or
 /// [`Problem::iter`] to stream all satisfying arrangements.
+///
+/// If `pieces` is empty or `num_squares == 0`, the problem has no
+/// arrangements to enumerate and `count()` returns `0`.
 #[derive(Clone, Debug)]
 pub struct Problem<P: PieceKind, C: ColorKind = SquareColor> {
     /// Number of squares (e.g. `8` for a chess back rank).
@@ -27,8 +30,7 @@ pub struct Problem<P: PieceKind, C: ColorKind = SquareColor> {
     pub square_colors: Vec<C>,
     /// Alphabet of available piece kinds. Duplicates are silently
     /// deduped by the solver; size doesn't have to equal
-    /// `num_squares` — the multiset to permute is derived from
-    /// `Constraint::Count{Eq}` constraints in `constraint`.
+    /// `num_squares`.
     pub pieces: Vec<P>,
     /// Root constraint. Use [`Constraint::And`] for conjunctions.
     pub constraint: Constraint<P, C>,
@@ -62,28 +64,41 @@ impl<P: PieceKind, C: ColorKind> Problem<P, C> {
     /// Returns a uniformly-random arrangement satisfying the
     /// constraint, deterministic in `seed`. `None` if the constraint
     /// is unsatisfiable.
+    ///
+    /// Single pass over `self.iter()` using reservoir-of-size-1
+    /// sampling: each satisfying arrangement is selected with
+    /// probability `1 / k` where `k` is its 1-based index in the
+    /// iterator. The result is uniformly random over the satisfying
+    /// arrangements without materialising them all.
     #[must_use]
     pub fn sample(&self, seed: u64) -> Option<Vec<P>> {
-        let total = self.count();
-        if total == 0 {
-            return None;
-        }
         let mut rng = fastrand::Rng::with_seed(seed);
-        let idx = rng.u64(..total);
-        self.at(idx)
+        let mut chosen: Option<Vec<P>> = None;
+        for (i, arrangement) in self.iter().enumerate() {
+            // 1-based position used as the reservoir denominator.
+            let seen = (i as u64).saturating_add(1);
+            if rng.u64(0..seen) == 0 {
+                chosen = Some(arrangement);
+            }
+        }
+        chosen
     }
 
     /// Returns a copy of `self` with `c` added via AND-composition.
     #[must_use]
-    pub fn with_constraint(mut self, c: Constraint<P, C>) -> Self {
-        self.constraint = match self.constraint {
+    pub fn with_constraint(&self, c: Constraint<P, C>) -> Self
+    where
+        C: Clone,
+    {
+        let mut next = self.clone();
+        next.constraint = match next.constraint {
             Constraint::And(mut cs) => {
                 cs.push(c);
                 Constraint::And(cs)
             }
             existing => Constraint::And(vec![existing, c]),
         };
-        self
+        next
     }
 
     /// Returns the alphabet with duplicates removed, preserving
@@ -98,14 +113,14 @@ impl<P: PieceKind, C: ColorKind> Problem<P, C> {
         seen
     }
 
-    /// Builds the starting sequence the enumerator iterates over.
-    ///
-    /// If every alphabet member has a `Constraint::Count { piece, op:
-    /// Eq, value }` and the values sum to `num_squares`, return the
-    /// explicit sorted multiset. Otherwise return all length-N
-    /// candidates implicitly by returning `None` — the iterator
-    /// falls back to enumerating Cartesian-product sequences from
-    /// the alphabet under partial / no count constraints.
+    /// Internal optimisation: when every alphabet member has a
+    /// top-level (root or And-nested) `Constraint::Count { Eq, n }`
+    /// fixing its multiplicity and the values sum to `num_squares`,
+    /// the enumerator can permute that exact multiset instead of
+    /// running the full Cartesian product. Returns `None` (falls
+    /// back to Cartesian enumeration) whenever the fast path can't
+    /// apply — including when `Count{Eq}` constraints sit inside
+    /// `Or` / `Not` (we don't infer counts across disjunction).
     fn fully_constrained_multiset(&self) -> Option<Vec<P>> {
         let alphabet = self.dedup_alphabet();
         if alphabet.is_empty() {
@@ -151,9 +166,11 @@ enum IterState<P: PieceKind> {
     Permutation { current: Option<Vec<P>> },
     /// Partial / unconstrained — iterate Cartesian-product
     /// length-N sequences from the alphabet. `current` is the next
-    /// candidate to emit.
+    /// candidate to emit. `index` maps each alphabet member to its
+    /// position so advancing is O(1) per slot.
     Cartesian {
         alphabet: Vec<P>,
+        index: HashMap<P, usize>,
         current: Option<Vec<P>>,
     },
 }
@@ -171,7 +188,12 @@ impl<'a, P: PieceKind, C: ColorKind> ProblemIter<'a, P, C> {
                 } else {
                     Some(vec![alphabet[0]; problem.num_squares])
                 };
-                IterState::Cartesian { alphabet, current }
+                let index = alphabet.iter().enumerate().map(|(i, p)| (*p, i)).collect();
+                IterState::Cartesian {
+                    alphabet,
+                    index,
+                    current,
+                }
             }
         };
         Self { problem, state }
@@ -192,10 +214,14 @@ impl<P: PieceKind, C: ColorKind> Iterator for ProblemIter<'_, P, C> {
                     }
                     candidate
                 }
-                IterState::Cartesian { alphabet, current } => {
+                IterState::Cartesian {
+                    alphabet,
+                    index,
+                    current,
+                } => {
                     let candidate = current.take()?;
                     let mut next = candidate.clone();
-                    if next_cartesian(&mut next, alphabet) {
+                    if next_cartesian(&mut next, alphabet, index) {
                         *current = Some(next);
                     }
                     candidate
@@ -245,18 +271,17 @@ fn next_permutation<T: Ord>(v: &mut [T]) -> bool {
 
 /// Lexicographically advances `v` to the next length-`v.len()`
 /// sequence drawn from `alphabet` (Cartesian product, repetition
-/// allowed). Returns `false` if `v` was already the last sequence.
-fn next_cartesian<P: PieceKind>(v: &mut [P], alphabet: &[P]) -> bool {
+/// allowed). `index` maps each alphabet member to its position
+/// (built once in [`ProblemIter::new`]). Returns `false` if `v`
+/// was already the last sequence.
+fn next_cartesian<P: PieceKind>(v: &mut [P], alphabet: &[P], index: &HashMap<P, usize>) -> bool {
     if alphabet.is_empty() {
         return false;
     }
     let last = alphabet[alphabet.len() - 1];
     for i in (0..v.len()).rev() {
         if v[i] != last {
-            let pos = alphabet
-                .iter()
-                .position(|p| p == &v[i])
-                .expect("in alphabet");
+            let pos = *index.get(&v[i]).expect("in alphabet");
             v[i] = alphabet[pos + 1];
             for slot in v.iter_mut().skip(i + 1) {
                 *slot = alphabet[0];
@@ -667,6 +692,84 @@ mod tests {
             ]),
         };
         assert_eq!(problem.count(), 0);
+        assert_eq!(problem.sample(0), None);
+    }
+
+    #[test]
+    fn count_constraint_with_inequality_filters() {
+        // Alphabet {A, B} on 3 squares (Cartesian regime — no Count-Eq).
+        // Filter to arrangements with at least 1 A and at most 2 A.
+        let problem = Problem {
+            num_squares: 3,
+            square_colors: light_dark(3),
+            pieces: vec![Tile::A, Tile::B],
+            constraint: Constraint::And(vec![
+                Constraint::Count {
+                    piece: Tile::A,
+                    op: CountOp::Ge,
+                    value: 1,
+                },
+                Constraint::Count {
+                    piece: Tile::A,
+                    op: CountOp::Le,
+                    value: 2,
+                },
+            ]),
+        };
+        // 2^3 = 8 total, minus the all-B (0 A's) and all-A (3 A's) extremes.
+        assert_eq!(problem.count(), 6);
+    }
+
+    #[test]
+    fn count_constraint_inside_or_not_treated_as_multiset_declaration() {
+        // Or-wrapped Count-Eq must NOT be picked up by the multiset
+        // fast path — the solver should fall back to Cartesian
+        // enumeration and filter via the Or.
+        let problem = Problem {
+            num_squares: 2,
+            square_colors: light_dark(2),
+            pieces: vec![Tile::A, Tile::B],
+            constraint: Constraint::Or(vec![
+                Constraint::Count {
+                    piece: Tile::A,
+                    op: CountOp::Eq,
+                    value: 2,
+                },
+                Constraint::Count {
+                    piece: Tile::B,
+                    op: CountOp::Eq,
+                    value: 2,
+                },
+            ]),
+        };
+        // Cartesian regime: 2^2 = 4 candidates (AA, AB, BA, BB).
+        // AA satisfies first arm, BB satisfies second. Count = 2.
+        assert_eq!(problem.count(), 2);
+    }
+
+    #[test]
+    fn empty_alphabet_yields_zero_arrangements() {
+        let problem: Problem<Tile> = Problem {
+            num_squares: 3,
+            square_colors: light_dark(3),
+            pieces: vec![],
+            constraint: Constraint::And(vec![]),
+        };
+        assert_eq!(problem.count(), 0);
+        assert_eq!(problem.at(0), None);
+        assert_eq!(problem.sample(0), None);
+    }
+
+    #[test]
+    fn zero_squares_yields_zero_arrangements() {
+        let problem: Problem<Tile> = Problem {
+            num_squares: 0,
+            square_colors: vec![],
+            pieces: vec![Tile::A, Tile::B],
+            constraint: Constraint::And(vec![]),
+        };
+        assert_eq!(problem.count(), 0);
+        assert_eq!(problem.at(0), None);
         assert_eq!(problem.sample(0), None);
     }
 

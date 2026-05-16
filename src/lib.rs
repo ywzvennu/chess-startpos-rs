@@ -15,13 +15,13 @@
 //! - `num_squares` is the board size.
 //! - `square_colors` labels each square with a colour from the
 //!   user-defined colour set. Generic; defaults to [`SquareColor`].
-//! - Counts (how many of each kind) come from
-//!   [`Constraint::Count`] entries — the field doesn't encode them.
+//! - Constraints filter the arrangements you want. The solver
+//!   enumerates length-`num_squares` sequences over the alphabet
+//!   and keeps the ones satisfying the root constraint.
 //!
-//! When every alphabet member has a [`Constraint::Count`] with
-//! `op = CountOp::Eq` summing to `num_squares`, the solver permutes
-//! exactly that multiset. Otherwise it enumerates over the variable
-//! multisets the alphabet allows and filters.
+//! The constraint vocabulary is `Count`, `CountOnColor`, `At`,
+//! `NotAt`, `Order`, and `Relative`, composable with `And` / `Or` /
+//! `Not`. See [`Constraint`] for each variant's semantics.
 //!
 //! # Quick start — chess presets
 //!

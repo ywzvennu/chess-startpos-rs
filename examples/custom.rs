@@ -100,7 +100,7 @@ fn main() {
     println!("sample(seed=7) = {:?}", problem.sample(7).unwrap());
 
     // Narrow further: pin a Queen onto square 4.
-    let narrowed = problem.clone().with_constraint(Constraint::At {
+    let narrowed = problem.with_constraint(Constraint::At {
         piece: Card::Queen,
         square: 4,
     });
