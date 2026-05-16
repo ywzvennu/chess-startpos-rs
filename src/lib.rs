@@ -15,7 +15,7 @@
 //!
 //! assert_eq!(chess::shuffle().count(), 5040);
 //! assert_eq!(chess::chess_2880().count(), 2880);
-//! assert_eq!(chess::chess960().count(), 960);
+//! assert_eq!(chess::chess_960().count(), 960);
 //! ```
 
 #![warn(missing_docs)]

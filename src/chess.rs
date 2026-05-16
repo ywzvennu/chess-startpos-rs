@@ -134,7 +134,7 @@ pub fn chess_2880() -> Problem<Piece> {
 /// between the two rooks. `count() == 960`. Equivalent to the
 /// Chess960 (Fischer Random) starting-position set.
 #[must_use]
-pub fn chess960() -> Problem<Piece> {
+pub fn chess_960() -> Problem<Piece> {
     let (num_squares, square_colors) = back_rank_board();
     let constraint = Constraint::And(vec![
         Constraint::CountOnColor {
@@ -179,8 +179,8 @@ mod tests {
     }
 
     #[test]
-    fn chess960_count_is_960() {
-        assert_eq!(chess960().count(), 960);
+    fn chess_960_count_is_960() {
+        assert_eq!(chess_960().count(), 960);
     }
 
     #[test]
@@ -191,21 +191,21 @@ mod tests {
     }
 
     #[test]
-    fn chess960_minus_king_constraint_equals_chess_2880() {
-        // Sanity check the combinator semantics: chess960's count
+    fn chess_960_minus_king_constraint_equals_chess_2880() {
+        // Sanity check the combinator semantics: chess_960's count
         // divided by the king-between-rooks factor (1 in 3) equals
         // chess_2880's count.
-        assert_eq!(chess960().count() * 3, chess_2880().count());
+        assert_eq!(chess_960().count() * 3, chess_2880().count());
     }
 
     #[test]
-    fn with_constraint_narrows_chess960() {
+    fn with_constraint_narrows_chess_960() {
         // Force the queen onto file 3 — narrows the population.
-        let narrowed = chess960().with_constraint(Constraint::At {
+        let narrowed = chess_960().with_constraint(Constraint::At {
             piece: Piece::Queen,
             square: 3,
         });
-        assert!(narrowed.count() < chess960().count());
+        assert!(narrowed.count() < chess_960().count());
         assert!(narrowed.count() > 0);
     }
 }

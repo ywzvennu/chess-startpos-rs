@@ -34,21 +34,21 @@ use chess_startpos_rs::chess;
 assert_eq!(chess::standard().count(),    1);     // FIDE starting back rank
 assert_eq!(chess::shuffle().count(),     5040);  // any permutation
 assert_eq!(chess::chess_2880().count(),  2880);  // bishops opposite colours
-assert_eq!(chess::chess960().count(),    960);   // bishops opposite + king between rooks
+assert_eq!(chess::chess_960().count(),    960);   // bishops opposite + king between rooks
 
 // Deterministic indexed lookup, in canonical lexicographic order.
-let pos = chess::chess960().at(0).unwrap();
+let pos = chess::chess_960().at(0).unwrap();
 
 // Uniform random sampling, deterministic in the seed.
-let pos = chess::chess960().sample(42).unwrap();
+let pos = chess::chess_960().sample(42).unwrap();
 
 // Narrow any preset with extra constraints.
 use chess_startpos_rs::Constraint;
-let with_queen_on_d1 = chess::chess960().with_constraint(Constraint::At {
+let with_queen_on_d1 = chess::chess_960().with_constraint(Constraint::At {
     piece: chess::Piece::Queen,
     square: 3,
 });
-assert!(with_queen_on_d1.count() < chess::chess960().count());
+assert!(with_queen_on_d1.count() < chess::chess_960().count());
 ```
 
 For a longer worked example, see [`examples/quickstart.rs`](examples/quickstart.rs)
