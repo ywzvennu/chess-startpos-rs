@@ -240,6 +240,93 @@ mod tests {
     }
 
     #[test]
+    fn order_with_out_of_range_instance_is_unsatisfied() {
+        // Reference (B, 2) when only two B's exist. No arrangement
+        // satisfies the chain — count must be zero.
+        let problem = Problem {
+            num_squares: 4,
+            square_colors: light_dark(4),
+            pieces: vec![Tile::A, Tile::B, Tile::B, Tile::C],
+            constraint: Constraint::Order(vec![
+                (Tile::B, 0),
+                (Tile::B, 1),
+                (Tile::B, 2), // does not exist
+            ]),
+        };
+        assert_eq!(problem.count(), 0);
+    }
+
+    #[test]
+    fn relative_constraint_exact_offset() {
+        // Tile::A exactly one square right of Tile::B.
+        let problem = Problem {
+            num_squares: 3,
+            square_colors: light_dark(3),
+            pieces: vec![Tile::A, Tile::B, Tile::C],
+            constraint: Constraint::Relative {
+                lhs: (Tile::A, 0),
+                rhs: (Tile::B, 0),
+                op: CountOp::Eq,
+                offset: 1,
+            },
+        };
+        // BAC (B=0, A=1, C=2), CBA (C=0, B=1, A=2) — A is one right of
+        // B in both. Other arrangements either fail or have A left of B.
+        let arrangements: Vec<Vec<Tile>> = problem.iter().collect();
+        assert_eq!(
+            arrangements,
+            vec![
+                vec![Tile::B, Tile::A, Tile::C],
+                vec![Tile::C, Tile::B, Tile::A],
+            ],
+        );
+    }
+
+    #[test]
+    fn relative_constraint_absolute_distance_via_and() {
+        // |A - B| <= 1 expressed as And([Le, Ge]).
+        let problem = Problem {
+            num_squares: 3,
+            square_colors: light_dark(3),
+            pieces: vec![Tile::A, Tile::B, Tile::C],
+            constraint: Constraint::And(vec![
+                Constraint::Relative {
+                    lhs: (Tile::A, 0),
+                    rhs: (Tile::B, 0),
+                    op: CountOp::Le,
+                    offset: 1,
+                },
+                Constraint::Relative {
+                    lhs: (Tile::A, 0),
+                    rhs: (Tile::B, 0),
+                    op: CountOp::Ge,
+                    offset: -1,
+                },
+            ]),
+        };
+        // A and B must be adjacent. ABC, BAC, BCA, CAB are the 4
+        // perms (out of 6) with |A-B| == 1.
+        assert_eq!(problem.count(), 4);
+    }
+
+    #[test]
+    fn relative_with_out_of_range_instance_is_unsatisfied() {
+        // Reference (A, 1) when only one A exists.
+        let problem = Problem {
+            num_squares: 3,
+            square_colors: light_dark(3),
+            pieces: vec![Tile::A, Tile::B, Tile::C],
+            constraint: Constraint::Relative {
+                lhs: (Tile::A, 1), // does not exist
+                rhs: (Tile::B, 0),
+                op: CountOp::Eq,
+                offset: 0,
+            },
+        };
+        assert_eq!(problem.count(), 0);
+    }
+
+    #[test]
     fn and_or_not_combinators() {
         let problem = Problem {
             num_squares: 3,
