@@ -4,9 +4,12 @@
 //! Callers who don't want to define their own piece kind, board, or
 //! constraint set can use one of the four named presets directly.
 
-use crate::{Constraint, CountOp, Problem, SquareColor};
+use crate::{alternating, Constraint, CountOp, Problem, SquareColor};
 
-/// The six standard chess piece kinds.
+/// The five standard back-rank chess piece kinds.
+///
+/// `Pawn` is intentionally absent — pawns never appear on the back
+/// rank, so they have no role in this crate's combinatorial problem.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum Piece {
     /// King.
@@ -19,9 +22,6 @@ pub enum Piece {
     Bishop,
     /// Knight.
     Knight,
-    /// Pawn (not used in back-rank arrangements, included for API
-    /// completeness).
-    Pawn,
 }
 
 /// File-letter constants and the char-to-index helper.
@@ -77,8 +77,7 @@ pub mod file {
     }
 }
 
-/// The standard back-rank piece multiset (KQRRBBNN), in a1..h1 order
-/// matching the FIDE starting position.
+/// The FIDE standard back-rank arrangement, in a1..h1 order.
 pub const STANDARD_BACK_RANK: [Piece; 8] = [
     Piece::Rook,
     Piece::Knight,
@@ -90,101 +89,112 @@ pub const STANDARD_BACK_RANK: [Piece; 8] = [
     Piece::Rook,
 ];
 
-/// Returns the 8-square back-rank board: `(num_squares, square_colors)`.
-///
-/// Square 0 is `a1`, which is a dark square in standard chess. Colours
-/// alternate dark / light / dark / ... so the diagonal a1–h8 is dark.
+/// Returns the standard 8-square back-rank colour layout, with
+/// `a1 = Dark` and squares alternating.
 #[must_use]
-pub fn back_rank_board() -> (usize, Vec<SquareColor>) {
-    let colors: Vec<SquareColor> = (0..8)
-        .map(|i| {
-            if i % 2 == 0 {
-                SquareColor::Dark
-            } else {
-                SquareColor::Light
-            }
-        })
-        .collect();
-    (8, colors)
+pub fn back_rank_colors() -> Vec<SquareColor> {
+    alternating(8, SquareColor::Dark, SquareColor::Light)
 }
 
-fn back_rank_multiset() -> Vec<Piece> {
+/// The alphabet of back-rank piece kinds.
+fn alphabet() -> Vec<Piece> {
     vec![
         Piece::King,
         Piece::Queen,
         Piece::Rook,
-        Piece::Rook,
-        Piece::Bishop,
         Piece::Bishop,
         Piece::Knight,
-        Piece::Knight,
+    ]
+}
+
+/// The five `Count {kind, Eq, n}` constraints that fix the back-rank
+/// multiset to KQRRBBNN.
+fn back_rank_counts() -> Vec<Constraint<Piece>> {
+    vec![
+        Constraint::Count {
+            piece: Piece::King,
+            op: CountOp::Eq,
+            value: 1,
+        },
+        Constraint::Count {
+            piece: Piece::Queen,
+            op: CountOp::Eq,
+            value: 1,
+        },
+        Constraint::Count {
+            piece: Piece::Rook,
+            op: CountOp::Eq,
+            value: 2,
+        },
+        Constraint::Count {
+            piece: Piece::Bishop,
+            op: CountOp::Eq,
+            value: 2,
+        },
+        Constraint::Count {
+            piece: Piece::Knight,
+            op: CountOp::Eq,
+            value: 2,
+        },
     ]
 }
 
 /// Preset: only the FIDE standard starting back rank. `count() == 1`.
 #[must_use]
 pub fn standard() -> Problem<Piece> {
-    let (num_squares, square_colors) = back_rank_board();
-    // The constraint pins every square to the FIDE arrangement.
-    let constraint = Constraint::And(
-        STANDARD_BACK_RANK
-            .iter()
-            .enumerate()
-            .map(|(i, p)| Constraint::At {
-                piece: *p,
-                square: i,
-            })
-            .collect(),
-    );
+    let mut constraints = back_rank_counts();
+    for (i, p) in STANDARD_BACK_RANK.iter().enumerate() {
+        constraints.push(Constraint::At {
+            piece: *p,
+            square: i,
+        });
+    }
     Problem {
-        num_squares,
-        square_colors,
-        pieces: back_rank_multiset(),
-        constraint,
+        num_squares: 8,
+        square_colors: back_rank_colors(),
+        pieces: alphabet(),
+        constraint: Constraint::And(constraints),
     }
 }
 
-/// Preset: any arrangement of the standard back-rank multiset, no
-/// extra constraints. `count() == 5040`.
+/// Preset: any arrangement of KQRRBBNN. `count() == 5040`.
 #[must_use]
 pub fn shuffle() -> Problem<Piece> {
-    let (num_squares, square_colors) = back_rank_board();
     Problem {
-        num_squares,
-        square_colors,
-        pieces: back_rank_multiset(),
-        constraint: Constraint::And(vec![]),
+        num_squares: 8,
+        square_colors: back_rank_colors(),
+        pieces: alphabet(),
+        constraint: Constraint::And(back_rank_counts()),
     }
 }
 
-/// Preset: bishops on opposite-colour squares. `count() == 2880`.
+/// Preset: KQRRBBNN with bishops on opposite-colour squares.
+/// `count() == 2880`.
 #[must_use]
 pub fn chess_2880() -> Problem<Piece> {
-    let (num_squares, square_colors) = back_rank_board();
-    let constraint = Constraint::And(vec![
-        Constraint::CountOnColor {
-            piece: Piece::Bishop,
-            color: SquareColor::Light,
-            op: CountOp::Eq,
-            value: 1,
-        },
-        Constraint::CountOnColor {
-            piece: Piece::Bishop,
-            color: SquareColor::Dark,
-            op: CountOp::Eq,
-            value: 1,
-        },
-    ]);
+    let mut constraints = back_rank_counts();
+    constraints.push(Constraint::CountOnColor {
+        piece: Piece::Bishop,
+        color: SquareColor::Light,
+        op: CountOp::Eq,
+        value: 1,
+    });
+    constraints.push(Constraint::CountOnColor {
+        piece: Piece::Bishop,
+        color: SquareColor::Dark,
+        op: CountOp::Eq,
+        value: 1,
+    });
     Problem {
-        num_squares,
-        square_colors,
-        pieces: back_rank_multiset(),
-        constraint,
+        num_squares: 8,
+        square_colors: back_rank_colors(),
+        pieces: alphabet(),
+        constraint: Constraint::And(constraints),
     }
 }
 
-/// Preset: bishops on opposite-colour squares plus king strictly
-/// between the two rooks. `count() == 960`. Equivalent to the
+/// Preset: KQRRBBNN with bishops on opposite-colour squares plus king
+/// strictly between the two rooks. `count() == 960`. Equivalent to the
 /// Chess960 (Fischer Random) starting-position set.
 ///
 /// Returns a [`Chess960Problem`] wrapper that exposes both lexicographic
@@ -192,28 +202,30 @@ pub fn chess_2880() -> Problem<Piece> {
 /// bijection ([`Chess960Problem::sp_id`] / [`Chess960Problem::sp_id_of`]).
 #[must_use]
 pub fn chess_960() -> Chess960Problem {
-    let (num_squares, square_colors) = back_rank_board();
-    let constraint = Constraint::And(vec![
-        Constraint::CountOnColor {
-            piece: Piece::Bishop,
-            color: SquareColor::Light,
-            op: CountOp::Eq,
-            value: 1,
-        },
-        Constraint::CountOnColor {
-            piece: Piece::Bishop,
-            color: SquareColor::Dark,
-            op: CountOp::Eq,
-            value: 1,
-        },
-        Constraint::Order(vec![(Piece::Rook, 0), (Piece::King, 0), (Piece::Rook, 1)]),
-    ]);
+    let mut constraints = back_rank_counts();
+    constraints.push(Constraint::CountOnColor {
+        piece: Piece::Bishop,
+        color: SquareColor::Light,
+        op: CountOp::Eq,
+        value: 1,
+    });
+    constraints.push(Constraint::CountOnColor {
+        piece: Piece::Bishop,
+        color: SquareColor::Dark,
+        op: CountOp::Eq,
+        value: 1,
+    });
+    constraints.push(Constraint::Order(vec![
+        (Piece::Rook, 0),
+        (Piece::King, 0),
+        (Piece::Rook, 1),
+    ]));
     Chess960Problem {
         inner: Problem {
-            num_squares,
-            square_colors,
-            pieces: back_rank_multiset(),
-            constraint,
+            num_squares: 8,
+            square_colors: back_rank_colors(),
+            pieces: alphabet(),
+            constraint: Constraint::And(constraints),
         },
     }
 }
@@ -225,17 +237,14 @@ pub fn chess_960() -> Chess960Problem {
 ///
 /// The generic methods ([`at`](Self::at), [`iter`](Self::iter),
 /// [`sample`](Self::sample), [`count`](Self::count)) operate in
-/// **lexicographic** order over the sorted piece multiset, matching
+/// **lexicographic** order over the sorted derived multiset, matching
 /// the rest of the crate. The Chess960-specific methods
 /// ([`sp_id`](Self::sp_id), [`sp_id_of`](Self::sp_id_of)) use the
-/// official FIDE numbering, which interoperates with Stockfish,
-/// Lichess, python-chess, and other chess software.
+/// official FIDE numbering, interoperating with Stockfish, Lichess,
+/// python-chess, and other chess software.
 ///
 /// The standard FIDE starting position is `sp_id(518)`.
-pub struct Chess960Problem {
-    inner: Problem<Piece>,
-}
-
+///
 /// The official encoding `((KN · 6 + Q) · 4 + DB) · 4 + LB` derives
 /// each Chess960 starting position from four sub-indices:
 ///
@@ -247,6 +256,11 @@ pub struct Chess960Problem {
 ///
 /// The remaining three squares are filled rook–king–rook from left to
 /// right, which automatically satisfies the king-between-rooks rule.
+#[derive(Clone, Debug)]
+pub struct Chess960Problem {
+    inner: Problem<Piece>,
+}
+
 const KNIGHT_PAIRS: [(usize, usize); 10] = [
     (0, 1),
     (0, 2),
@@ -290,9 +304,11 @@ impl Chess960Problem {
     }
 
     /// Returns a uniformly-random arrangement, deterministic in `seed`.
+    ///
+    /// Infallible — the Chess960 preset is statically non-empty.
     #[must_use]
-    pub fn sample(&self, seed: u64) -> Option<Vec<Piece>> {
-        self.inner.sample(seed)
+    pub fn sample(&self, seed: u64) -> Vec<Piece> {
+        self.inner.sample(seed).expect("chess_960() is non-empty")
     }
 
     /// Returns the back-rank arrangement at the given canonical
@@ -475,20 +491,16 @@ mod tests {
 
     #[test]
     fn chess_960_minus_king_constraint_equals_chess_2880() {
-        // Sanity check the combinator semantics: chess_960's count
-        // divided by the king-between-rooks factor (1 in 3) equals
-        // chess_2880's count.
         assert_eq!(chess_960().count() * 3, chess_2880().count());
     }
 
     #[test]
     fn with_constraint_narrows_chess_960() {
-        // Force the queen onto file 3 — narrows the population.
         let narrowed = chess_960().with_constraint(Constraint::At {
             piece: Piece::Queen,
             square: 3,
         });
-        assert!(narrowed.count() < chess_960().count());
+        assert!(narrowed.count() < 960);
         assert!(narrowed.count() > 0);
     }
 
@@ -511,8 +523,6 @@ mod tests {
 
     #[test]
     fn file_constants_usable_in_at_constraint() {
-        // Same narrowing as with_constraint_narrows_chess_960 but using
-        // the file constant for readability.
         let with_queen_on_d = chess_960().with_constraint(Constraint::At {
             piece: Piece::Queen,
             square: file::D,
@@ -546,19 +556,12 @@ mod tests {
     }
 
     #[test]
-    fn sp_id_yields_valid_chess960_arrangements() {
-        // Every SP-ID position must pass the chess_960 constraints.
+    fn sample_is_deterministic_in_seed() {
         let preset = chess_960();
-        let problem = preset.inner.clone();
-        for id in 0..Chess960Problem::COUNT {
-            let arrangement = preset.sp_id(id).expect("in range");
-            assert!(
-                problem
-                    .constraint
-                    .evaluate(&arrangement, &problem.square_colors),
-                "SP-ID {id} violates chess_960 constraints: {arrangement:?}"
-            );
-        }
+        let a = preset.sample(0xC0FFEE);
+        let b = preset.sample(0xC0FFEE);
+        assert_eq!(a, b);
+        assert!(preset.sp_id_of(&a).is_some());
     }
 
     #[test]

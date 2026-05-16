@@ -1,16 +1,17 @@
-//! Bring-your-own piece kind on a non-8-square board.
+//! Bring-your-own piece kind, colour kind, and board size.
 //!
-//! The crate is generic over both the piece type and the board size, so
-//! it can solve any "lay this multiset out under these positional
-//! constraints" problem — not only chess back-rank shuffles.
+//! The crate is generic over all three, so it can solve any "lay this
+//! multiset out under these positional constraints" problem — not
+//! only chess back-rank shuffles.
 //!
 //! This example arranges a six-card lineup of `Ace` / `King` / `Queen`
-//! pairs under three constraints, then walks through the public API:
-//! `count`, `iter`, `at`, `sample`, and `with_constraint`.
+//! pairs over a 6-square board with a user-defined three-zone colour
+//! set, then walks through the public API: `count`, `iter`, `at`,
+//! `sample`, and `with_constraint`.
 //!
 //! Run with `cargo run --example custom`.
 
-use chess_startpos_rs::{Constraint, CountOp, Problem, SquareColor};
+use chess_startpos_rs::{Constraint, CountOp, Problem};
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 enum Card {
@@ -19,62 +20,84 @@ enum Card {
     Queen,
 }
 
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+enum Zone {
+    Red,
+    Green,
+    Blue,
+}
+
 fn main() {
-    // A 6-square row split into two halves. We use `square_colors` as
-    // an arbitrary partition (Light = first half, Dark = second half),
-    // which `CountOnColor` can then key off.
-    let halves = vec![
-        SquareColor::Light,
-        SquareColor::Light,
-        SquareColor::Light,
-        SquareColor::Dark,
-        SquareColor::Dark,
-        SquareColor::Dark,
+    // 6 squares split into three pairs of zones. `CountOnColor` can
+    // key off any user-defined colour kind.
+    let colors = vec![
+        Zone::Red,
+        Zone::Red,
+        Zone::Green,
+        Zone::Green,
+        Zone::Blue,
+        Zone::Blue,
     ];
 
-    // Multiset: two of each card.
-    let pieces = vec![
-        Card::Ace,
-        Card::Ace,
-        Card::King,
-        Card::King,
-        Card::Queen,
-        Card::Queen,
-    ];
+    // Alphabet (set of distinct kinds available). Counts come from
+    // Count constraints below, not from this field.
+    let alphabet = vec![Card::Ace, Card::King, Card::Queen];
 
     // Constraints:
-    //   1. Exactly one Ace in each half (split aces across the row).
-    //   2. The first King precedes the first Queen.
+    //   1. Fix the multiset to 2 Aces + 2 Kings + 2 Queens.
+    //   2. Aces distributed one in Red, one in Blue, none in Green.
+    //   3. The first King precedes the first Queen.
     let constraint = Constraint::And(vec![
+        Constraint::Count {
+            piece: Card::Ace,
+            op: CountOp::Eq,
+            value: 2,
+        },
+        Constraint::Count {
+            piece: Card::King,
+            op: CountOp::Eq,
+            value: 2,
+        },
+        Constraint::Count {
+            piece: Card::Queen,
+            op: CountOp::Eq,
+            value: 2,
+        },
         Constraint::CountOnColor {
             piece: Card::Ace,
-            color: SquareColor::Light,
+            color: Zone::Red,
             op: CountOp::Eq,
             value: 1,
         },
         Constraint::CountOnColor {
             piece: Card::Ace,
-            color: SquareColor::Dark,
+            color: Zone::Blue,
             op: CountOp::Eq,
             value: 1,
+        },
+        Constraint::CountOnColor {
+            piece: Card::Ace,
+            color: Zone::Green,
+            op: CountOp::Eq,
+            value: 0,
         },
         Constraint::Order(vec![(Card::King, 0), (Card::Queen, 0)]),
     ]);
 
-    let problem = Problem {
+    let problem: Problem<Card, Zone> = Problem {
         num_squares: 6,
-        square_colors: halves,
-        pieces,
+        square_colors: colors,
+        pieces: alphabet,
         constraint,
     };
 
-    println!("count           = {}", problem.count());
-    println!("first  (at 0)   = {:?}", problem.at(0).unwrap());
+    println!("count          = {}", problem.count());
+    println!("first (at 0)   = {:?}", problem.at(0).unwrap());
     println!(
-        "last           = {:?}",
+        "last (at last) = {:?}",
         problem.at(problem.count() - 1).unwrap()
     );
-    println!("sample(seed=7)  = {:?}", problem.sample(7).unwrap());
+    println!("sample(seed=7) = {:?}", problem.sample(7).unwrap());
 
     // Narrow further: pin a Queen onto square 4.
     let narrowed = problem.clone().with_constraint(Constraint::At {
