@@ -135,7 +135,7 @@ fn alphabet() -> Vec<Piece> {
 }
 
 /// The five `Count {kind, Eq, n}` constraints that fix the back-rank
-/// multiset to KQRRBBNN.
+/// counts to KQRRBBNN (1 K, 1 Q, 2 R, 2 B, 2 N).
 fn back_rank_counts() -> Vec<Constraint<Piece>> {
     vec![
         Constraint::Count {
@@ -264,7 +264,7 @@ pub fn chess_960() -> Chess960Problem {
 ///
 /// The generic methods ([`at`](Self::at), [`iter`](Self::iter),
 /// [`sample`](Self::sample), [`count`](Self::count)) operate in
-/// **lexicographic** order over the sorted derived multiset, matching
+/// **lexicographic** order over the declared piece counts, matching
 /// the rest of the crate. The Chess960-specific methods
 /// ([`sp_id`](Self::sp_id), [`sp_id_of`](Self::sp_id_of)) use the
 /// official FIDE numbering, interoperating with Stockfish, Lichess,
@@ -383,7 +383,7 @@ impl Chess960Problem {
 
     /// Returns the canonical SP-ID for an 8-square back-rank arrangement,
     /// or `None` if the arrangement is not a valid Chess960 starting
-    /// position (wrong piece multiset, bishops on same colour, king not
+    /// position (wrong piece counts, bishops on same colour, king not
     /// strictly between the rooks, ...).
     ///
     /// `sp_id` and `sp_id_of` are inverses:
@@ -617,7 +617,7 @@ mod tests {
         ];
         assert_eq!(preset.sp_id_of(&king_outside), None);
 
-        // Wrong multiset (two queens, no king).
+        // Wrong piece counts (two queens, no king).
         let two_queens = vec![
             Piece::Rook,
             Piece::Knight,

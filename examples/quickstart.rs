@@ -6,7 +6,7 @@ use chess_startpos_rs::{chess, Constraint};
 
 fn main() {
     // 1. Each preset is a `Problem` over the standard back-rank
-    //    multiset (KQRRBBNN) with a different constraint.
+    //    piece counts (KQRRBBNN) with a different constraint.
     println!("standard:    count = {}", chess::standard().count());
     println!("shuffle:     count = {}", chess::shuffle().count());
     println!("chess_2880:  count = {}", chess::chess_2880().count());

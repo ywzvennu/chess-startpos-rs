@@ -42,6 +42,16 @@ pub enum ValidationError {
         /// `num_squares`.
         num_squares: usize,
     },
+    /// An `Order` or `Relative` constraint references a piece
+    /// instance index that exceeds the count declared for that piece
+    /// via `Constraint::Count { Eq, n }`. Only checked when the
+    /// piece has a declared `Eq`-count.
+    InstanceOutOfRange {
+        /// The offending instance index.
+        instance: usize,
+        /// The declared count of that piece.
+        declared: usize,
+    },
 }
 
 impl fmt::Display for ValidationError {
@@ -61,6 +71,13 @@ impl fmt::Display for ValidationError {
             } => write!(
                 f,
                 "constraint references square {square} but num_squares is {num_squares}",
+            ),
+            Self::InstanceOutOfRange {
+                instance,
+                declared,
+            } => write!(
+                f,
+                "Order / Relative references instance {instance} of a piece declared with count {declared}",
             ),
         }
     }
@@ -126,6 +143,10 @@ impl<P: PieceKind, C: ColorKind> Problem<P, C> {
     ///   constraints; otherwise the colour reference is treated as
     ///   unknown.
     /// - Every `At` / `NotAt` square index is `< num_squares`.
+    /// - Every `Order` / `Relative` instance index is `< declared
+    ///   count` for that piece (only checked when the piece has a
+    ///   `Constraint::Count { Eq, n }` constraint declaring its
+    ///   count).
     ///
     /// `count()` / `iter()` / `sample()` do **not** auto-validate; if
     /// you need correctness up front, call this first or use
@@ -139,6 +160,17 @@ impl<P: PieceKind, C: ColorKind> Problem<P, C> {
         }
 
         let alphabet = self.dedup_alphabet();
+        let counts: HashMap<P, usize> = self.constraint.collect_eq_counts().into_iter().collect();
+        let check_instance = |p: &P, idx: usize| -> Option<ValidationError> {
+            counts
+                .get(p)
+                .filter(|&&declared| idx >= declared)
+                .map(|&declared| ValidationError::InstanceOutOfRange {
+                    instance: idx,
+                    declared,
+                })
+        };
+
         let mut error: Option<ValidationError> = None;
         self.constraint.walk(&mut |c| {
             if error.is_some() {
@@ -169,16 +201,27 @@ impl<P: PieceKind, C: ColorKind> Problem<P, C> {
                     }
                 }
                 Constraint::Order(chain) => {
-                    for (p, _) in chain {
+                    for (p, idx) in chain {
                         if !alphabet.contains(p) {
                             error = Some(ValidationError::UnknownPiece);
                             return;
                         }
+                        if let Some(e) = check_instance(p, *idx) {
+                            error = Some(e);
+                            return;
+                        }
                     }
                 }
+                Constraint::Relative { lhs, rhs, .. }
+                    if !alphabet.contains(&lhs.0) || !alphabet.contains(&rhs.0) =>
+                {
+                    error = Some(ValidationError::UnknownPiece);
+                }
                 Constraint::Relative { lhs, rhs, .. } => {
-                    if !alphabet.contains(&lhs.0) || !alphabet.contains(&rhs.0) {
-                        error = Some(ValidationError::UnknownPiece);
+                    if let Some(e) = check_instance(&lhs.0, lhs.1) {
+                        error = Some(e);
+                    } else if let Some(e) = check_instance(&rhs.0, rhs.1) {
+                        error = Some(e);
                     }
                 }
                 _ => {}
@@ -227,9 +270,8 @@ impl<P: PieceKind, C: ColorKind> Problem<P, C> {
         self.iter().count() as u64
     }
 
-    /// Streams all distinct arrangements satisfying the constraint,
-    /// in canonical lexicographic order over the sorted derived
-    /// multiset.
+    /// Streams all distinct arrangements satisfying the constraint
+    /// in canonical lexicographic order.
     pub fn iter(&self) -> impl Iterator<Item = Vec<P>> + '_ {
         ProblemIter::new(self)
     }
@@ -299,13 +341,15 @@ impl<P: PieceKind, C: ColorKind> Problem<P, C> {
 
     /// Internal optimisation: when every alphabet member has a
     /// top-level (root or And-nested) `Constraint::Count { Eq, n }`
-    /// fixing its multiplicity and the values sum to `num_squares`,
-    /// the enumerator can permute that exact multiset instead of
-    /// running the full Cartesian product. Returns `None` (falls
-    /// back to Cartesian enumeration) whenever the fast path can't
-    /// apply — including when `Count{Eq}` constraints sit inside
-    /// `Or` / `Not` (we don't infer counts across disjunction).
-    fn fully_constrained_multiset(&self) -> Option<Vec<P>> {
+    /// fixing its count and the values sum to `num_squares`, the
+    /// declared counts define a single multiset. The enumerator can
+    /// then iterate that multiset's distinct permutations via
+    /// next-permutation instead of running the full Cartesian
+    /// product. Returns `None` (falls back to Cartesian enumeration)
+    /// whenever the fast path can't apply — including when
+    /// `Count{Eq}` constraints sit inside `Or` / `Not` (we don't
+    /// infer counts across disjunction).
+    fn fixed_count_arrangement(&self) -> Option<Vec<P>> {
         let alphabet = self.dedup_alphabet();
         if alphabet.is_empty() {
             return None;
@@ -316,7 +360,7 @@ impl<P: PieceKind, C: ColorKind> Problem<P, C> {
             return None;
         }
 
-        let mut multiset: Vec<P> = Vec::with_capacity(self.num_squares);
+        let mut arrangement: Vec<P> = Vec::with_capacity(self.num_squares);
         let mut total = 0usize;
         for kind in &alphabet {
             // First Eq-count wins if the user accidentally specified
@@ -324,7 +368,7 @@ impl<P: PieceKind, C: ColorKind> Problem<P, C> {
             // catch the contradiction by emitting zero arrangements.
             let count = counts.iter().find(|(p, _)| p == kind).map(|(_, n)| *n)?;
             for _ in 0..count {
-                multiset.push(*kind);
+                arrangement.push(*kind);
             }
             total += count;
         }
@@ -332,8 +376,8 @@ impl<P: PieceKind, C: ColorKind> Problem<P, C> {
         if total != self.num_squares {
             return None;
         }
-        multiset.sort();
-        Some(multiset)
+        arrangement.sort();
+        Some(arrangement)
     }
 }
 
@@ -515,9 +559,11 @@ struct ProblemIter<'a, P: PieceKind, C: ColorKind> {
 }
 
 enum IterState<P: PieceKind> {
-    /// Fully constrained — iterate distinct multiset permutations
-    /// via next-permutation. `current` is the next candidate to emit
-    /// (after filtering).
+    /// Fully constrained — the declared counts give us a single
+    /// multiset; iterate its distinct permutations via the
+    /// next-permutation algorithm. Each emitted permutation is then
+    /// filtered against the rest of the constraint tree.
+    /// `current` is the next candidate to emit (before filtering).
     Permutation { current: Option<Vec<P>> },
     /// Partial / unconstrained — iterate Cartesian-product
     /// length-N sequences from the alphabet. `current` is the next
@@ -532,7 +578,7 @@ enum IterState<P: PieceKind> {
 
 impl<'a, P: PieceKind, C: ColorKind> ProblemIter<'a, P, C> {
     fn new(problem: &'a Problem<P, C>) -> Self {
-        let state = match problem.fully_constrained_multiset() {
+        let state = match problem.fixed_count_arrangement() {
             Some(start) => IterState::Permutation {
                 current: Some(start),
             },
@@ -595,10 +641,11 @@ impl<P: PieceKind, C: ColorKind> Iterator for ProblemIter<'_, P, C> {
     }
 }
 
-/// Standard next-permutation algorithm (lexicographic). For multisets
-/// this naturally skips duplicates because equal elements never
-/// produce a new ordering. Returns `false` if `v` was already the
-/// last permutation.
+/// Standard next-permutation algorithm (lexicographic). When the
+/// input contains duplicate elements, equal-element swaps never
+/// produce a new ordering, so the iteration naturally yields each
+/// distinct permutation once. Returns `false` if `v` was already
+/// the last permutation.
 fn next_permutation<T: Ord>(v: &mut [T]) -> bool {
     let n = v.len();
     if n < 2 {
@@ -679,9 +726,9 @@ mod tests {
     }
 
     #[test]
-    fn count_constraint_drives_multiset() {
-        // Alphabet {A, B}; counts {A: 2, B: 1}; expect 3 perms over the
-        // multiset [A, A, B].
+    fn count_constraint_drives_piece_counts() {
+        // Alphabet {A, B}; counts {A: 2, B: 1}; expect 3 perms over
+        // the resulting [A, A, B] arrangement.
         let problem = Problem {
             num_squares: 3,
             square_colors: light_dark(3),
@@ -1077,9 +1124,9 @@ mod tests {
     }
 
     #[test]
-    fn count_constraint_inside_or_not_treated_as_multiset_declaration() {
-        // Or-wrapped Count-Eq must NOT be picked up by the multiset
-        // fast path — the solver should fall back to Cartesian
+    fn count_constraint_inside_or_does_not_activate_fast_path() {
+        // Or-wrapped Count-Eq must NOT be picked up as a piece-count
+        // declaration — the solver should fall back to Cartesian
         // enumeration and filter via the Or.
         let problem = Problem {
             num_squares: 2,
@@ -1198,6 +1245,70 @@ mod tests {
             },
         };
         assert_eq!(problem.validate(), Err(ValidationError::UnknownColor));
+    }
+
+    #[test]
+    fn validate_rejects_instance_out_of_range_in_order() {
+        // Declare exactly 2 Bs but reference (B, 2).
+        let problem: Problem<Tile> = Problem {
+            num_squares: 3,
+            square_colors: light_dark(3),
+            pieces: vec![Tile::A, Tile::B],
+            constraint: Constraint::And(vec![
+                Constraint::Count {
+                    piece: Tile::A,
+                    op: CountOp::Eq,
+                    value: 1,
+                },
+                Constraint::Count {
+                    piece: Tile::B,
+                    op: CountOp::Eq,
+                    value: 2,
+                },
+                Constraint::Order(vec![(Tile::B, 0), (Tile::B, 1), (Tile::B, 2)]),
+            ]),
+        };
+        assert_eq!(
+            problem.validate(),
+            Err(ValidationError::InstanceOutOfRange {
+                instance: 2,
+                declared: 2,
+            }),
+        );
+    }
+
+    #[test]
+    fn validate_rejects_instance_out_of_range_in_relative() {
+        let problem: Problem<Tile> = Problem {
+            num_squares: 2,
+            square_colors: light_dark(2),
+            pieces: vec![Tile::A, Tile::B],
+            constraint: Constraint::And(vec![
+                Constraint::Count {
+                    piece: Tile::A,
+                    op: CountOp::Eq,
+                    value: 1,
+                },
+                Constraint::Count {
+                    piece: Tile::B,
+                    op: CountOp::Eq,
+                    value: 1,
+                },
+                Constraint::Relative {
+                    lhs: (Tile::A, 1), // only 1 A declared
+                    rhs: (Tile::B, 0),
+                    op: CountOp::Eq,
+                    offset: 0,
+                },
+            ]),
+        };
+        assert_eq!(
+            problem.validate(),
+            Err(ValidationError::InstanceOutOfRange {
+                instance: 1,
+                declared: 1,
+            }),
+        );
     }
 
     #[test]

@@ -115,7 +115,7 @@ let problem: Problem<Card> = Problem {
     ],
     pieces: vec![Card::Ace, Card::King, Card::Queen],   // alphabet
     constraint: Constraint::And(vec![
-        // Fix the multiset to 2 + 2 + 2 = 6.
+        // Pin exactly 2 of each kind (6 squares total).
         Constraint::Count { piece: Card::Ace,   op: CountOp::Eq, value: 2 },
         Constraint::Count { piece: Card::King,  op: CountOp::Eq, value: 2 },
         Constraint::Count { piece: Card::Queen, op: CountOp::Eq, value: 2 },
@@ -167,7 +167,8 @@ let problem: Problem<Bead, Zone> = Problem {
 The solver enumerates length-`num_squares` sequences from the alphabet
 and filters by the constraint tree. When every alphabet member has a
 `Constraint::Count { Eq, n }` and the values sum to `num_squares`, it
-takes a fast path that walks distinct multiset permutations directly.
+takes a fast path that walks distinct piece arrangements directly
+instead of the full Cartesian product.
 
 For a longer worked example, see [`examples/custom.rs`](examples/custom.rs)
 or run `cargo run --example custom`.
@@ -222,12 +223,15 @@ assert_eq!(problem.count(), 90);
 
 ## Solver
 
-For v0.1 the solver is hand-rolled: it iterates distinct multiset
-permutations via the standard next-permutation algorithm and filters by
-the constraint. For chess back-rank problems (up to 5040 candidates) this
-is microseconds, zero extra dependencies. A general-purpose CSP backend
-(behind a feature flag) is tracked in [#7](https://github.com/ywzvennu/chess-startpos-rs/issues/7)
-for whenever a larger problem size makes it worth the extra surface.
+For v0.1 the solver is hand-rolled: it enumerates piece arrangements
+over the declared alphabet via the standard next-permutation algorithm
+(when piece counts are fully fixed via `Count{Eq}` constraints) or via
+the Cartesian product over the alphabet (otherwise), then filters by
+the constraint tree. For chess back-rank problems (up to 5040
+candidates) this is microseconds, zero extra dependencies. A
+general-purpose CSP backend (behind a feature flag) is tracked in
+[#7](https://github.com/ywzvennu/chess-startpos-rs/issues/7) for
+whenever a larger problem size makes it worth the extra surface.
 
 ## Status
 

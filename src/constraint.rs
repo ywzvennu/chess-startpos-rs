@@ -121,11 +121,12 @@ pub enum Constraint<P, C = SquareColor> {
     ///
     /// If any `(piece, instance_idx)` in the chain references an
     /// instance that does not exist in the arrangement (e.g.
-    /// `(Bishop, 2)` when the multiset has only two bishops), the
-    /// constraint is **unsatisfied** for that arrangement. The chain
-    /// silently fails — it does not panic. This means a count of
-    /// zero is the visible result of such a mistake; for stricter
-    /// upfront checking see issue #14.
+    /// `(Bishop, 2)` when only two bishops were declared via
+    /// `Constraint::Count { Eq, 2 }`), the constraint is
+    /// **unsatisfied** for that arrangement. The chain silently
+    /// fails — it does not panic. For stricter upfront checking,
+    /// call [`crate::Problem::validate`] (or use
+    /// [`crate::ProblemBuilder::try_build`]).
     Order(Vec<(P, usize)>),
     /// Relative positional constraint between two specific piece
     /// instances:
@@ -228,8 +229,8 @@ impl<P: PieceKind, C: ColorKind> Constraint<P, C> {
 
     /// Collects every `Constraint::Count { piece, op: Eq, value }`
     /// keyed by `piece` from `self` and its top-level `And`-nested
-    /// children. Used by the solver to derive the multiset to
-    /// permute from a partially-declarative problem.
+    /// children. Used by the solver to derive the per-piece counts
+    /// that define the multiset for the fast-path enumeration.
     pub(crate) fn collect_eq_counts(&self) -> Vec<(P, usize)> {
         let mut out = Vec::new();
         self.collect_eq_counts_into(&mut out);
