@@ -1,8 +1,8 @@
 //! Bring-your-own piece kind, colour kind, and board size.
 //!
-//! The crate is generic over all three, so it can solve any "lay this
-//! multiset out under these positional constraints" problem — not
-//! only chess back-rank shuffles.
+//! The crate is generic over all three, so it can solve any "lay
+//! these pieces out under these positional constraints" problem —
+//! not only chess back-rank shuffles.
 //!
 //! This example arranges a six-card lineup of `Ace` / `King` / `Queen`
 //! pairs over a 6-square board with a user-defined three-zone colour
@@ -10,6 +10,9 @@
 //! `sample`, and `with_constraint`.
 //!
 //! Run with `cargo run --example custom`.
+
+// The crate is generic over piece kind and colour kind; we use a
+// `Card` enum for pieces and a `Zone` enum for colours.
 
 use chess_startpos_rs::{Constraint, CountOp, Problem};
 
@@ -44,7 +47,7 @@ fn main() {
     let alphabet = vec![Card::Ace, Card::King, Card::Queen];
 
     // Constraints:
-    //   1. Fix the multiset to 2 Aces + 2 Kings + 2 Queens.
+    //   1. Pin the per-piece counts: 2 Aces, 2 Kings, 2 Queens.
     //   2. Aces distributed one in Red, one in Blue, none in Green.
     //   3. The first King precedes the first Queen.
     let constraint = Constraint::And(vec![

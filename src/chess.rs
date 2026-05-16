@@ -4,6 +4,8 @@
 //! Callers who don't want to define their own piece kind, board, or
 //! constraint set can use one of the four named presets directly.
 
+use std::fmt;
+
 use crate::{alternating, Constraint, CountOp, Problem, SquareColor};
 
 /// The five standard back-rank chess piece kinds.
@@ -11,6 +13,7 @@ use crate::{alternating, Constraint, CountOp, Problem, SquareColor};
 /// `Pawn` is intentionally absent — pawns never appear on the back
 /// rank, so they have no role in this crate's combinatorial problem.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Piece {
     /// King.
     King,
@@ -22,6 +25,30 @@ pub enum Piece {
     Bishop,
     /// Knight.
     Knight,
+}
+
+impl fmt::Display for Piece {
+    /// Single-letter algebraic notation, white-side conventional
+    /// uppercase: `K`, `Q`, `R`, `B`, `N`.
+    ///
+    /// ```
+    /// use chess_startpos_rs::chess::Piece;
+    ///
+    /// assert_eq!(Piece::King.to_string(),   "K");
+    /// assert_eq!(Piece::Queen.to_string(),  "Q");
+    /// assert_eq!(Piece::Rook.to_string(),   "R");
+    /// assert_eq!(Piece::Bishop.to_string(), "B");
+    /// assert_eq!(Piece::Knight.to_string(), "N");
+    /// ```
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::King => "K",
+            Self::Queen => "Q",
+            Self::Rook => "R",
+            Self::Bishop => "B",
+            Self::Knight => "N",
+        })
+    }
 }
 
 /// File-letter constants and the char-to-index helper.
@@ -108,7 +135,7 @@ fn alphabet() -> Vec<Piece> {
 }
 
 /// The five `Count {kind, Eq, n}` constraints that fix the back-rank
-/// multiset to KQRRBBNN.
+/// counts to KQRRBBNN (1 K, 1 Q, 2 R, 2 B, 2 N).
 fn back_rank_counts() -> Vec<Constraint<Piece>> {
     vec![
         Constraint::Count {
@@ -237,7 +264,7 @@ pub fn chess_960() -> Chess960Problem {
 ///
 /// The generic methods ([`at`](Self::at), [`iter`](Self::iter),
 /// [`sample`](Self::sample), [`count`](Self::count)) operate in
-/// **lexicographic** order over the sorted derived multiset, matching
+/// **lexicographic** order over the declared piece counts, matching
 /// the rest of the crate. The Chess960-specific methods
 /// ([`sp_id`](Self::sp_id), [`sp_id_of`](Self::sp_id_of)) use the
 /// official FIDE numbering, interoperating with Stockfish, Lichess,
@@ -356,7 +383,7 @@ impl Chess960Problem {
 
     /// Returns the canonical SP-ID for an 8-square back-rank arrangement,
     /// or `None` if the arrangement is not a valid Chess960 starting
-    /// position (wrong piece multiset, bishops on same colour, king not
+    /// position (wrong piece counts, bishops on same colour, king not
     /// strictly between the rooks, ...).
     ///
     /// `sp_id` and `sp_id_of` are inverses:
@@ -590,7 +617,7 @@ mod tests {
         ];
         assert_eq!(preset.sp_id_of(&king_outside), None);
 
-        // Wrong multiset (two queens, no king).
+        // Wrong piece counts (two queens, no king).
         let two_queens = vec![
             Piece::Rook,
             Piece::Knight,

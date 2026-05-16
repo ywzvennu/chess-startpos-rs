@@ -10,6 +10,7 @@ use crate::{ColorKind, PieceKind};
 /// the `C` type parameter. Any `Copy + Eq + Hash + Debug` type
 /// satisfies [`ColorKind`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub enum SquareColor {
     /// Light-coloured square.
@@ -20,6 +21,7 @@ pub enum SquareColor {
 
 /// Comparison operator for count constraints.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[non_exhaustive]
 pub enum CountOp {
     /// Equal.
@@ -62,6 +64,14 @@ impl CountOp {
 /// `P` is the piece kind. `C` is the colour kind (defaults to
 /// [`SquareColor`] — the binary light/dark partition).
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(bound(
+        serialize = "P: serde::Serialize, C: serde::Serialize",
+        deserialize = "P: serde::Deserialize<'de>, C: serde::Deserialize<'de>"
+    ))
+)]
 #[non_exhaustive]
 pub enum Constraint<P, C = SquareColor> {
     /// Number of occurrences of `piece` across the arrangement
@@ -111,11 +121,12 @@ pub enum Constraint<P, C = SquareColor> {
     ///
     /// If any `(piece, instance_idx)` in the chain references an
     /// instance that does not exist in the arrangement (e.g.
-    /// `(Bishop, 2)` when the multiset has only two bishops), the
-    /// constraint is **unsatisfied** for that arrangement. The chain
-    /// silently fails — it does not panic. This means a count of
-    /// zero is the visible result of such a mistake; for stricter
-    /// upfront checking see issue #14.
+    /// `(Bishop, 2)` when only two bishops were declared via
+    /// `Constraint::Count { Eq, 2 }`), the constraint is
+    /// **unsatisfied** for that arrangement. The chain silently
+    /// fails — it does not panic. For stricter upfront checking,
+    /// call [`crate::Problem::validate`] (or use
+    /// [`crate::ProblemBuilder::try_build`]).
     Order(Vec<(P, usize)>),
     /// Relative positional constraint between two specific piece
     /// instances:
@@ -134,6 +145,11 @@ pub enum Constraint<P, C = SquareColor> {
     /// doesn't exist in the arrangement, the constraint is
     /// **unsatisfied** for that arrangement (same convention as
     /// [`Constraint::Order`]).
+    ///
+    /// `offset` is `i32` because the difference of two `usize`
+    /// squares is signed. Square indices are cast to `i32` before
+    /// the subtraction, so boards with `num_squares > i32::MAX` are
+    /// not supported by this constraint (chess uses 8).
     Relative {
         /// Left-hand piece instance.
         lhs: (P, usize),
@@ -213,8 +229,8 @@ impl<P: PieceKind, C: ColorKind> Constraint<P, C> {
 
     /// Collects every `Constraint::Count { piece, op: Eq, value }`
     /// keyed by `piece` from `self` and its top-level `And`-nested
-    /// children. Used by the solver to derive the multiset to
-    /// permute from a partially-declarative problem.
+    /// children. Used by the solver to derive the per-piece counts
+    /// that define the multiset for the fast-path enumeration.
     pub(crate) fn collect_eq_counts(&self) -> Vec<(P, usize)> {
         let mut out = Vec::new();
         self.collect_eq_counts_into(&mut out);
@@ -233,6 +249,23 @@ impl<P: PieceKind, C: ColorKind> Constraint<P, C> {
                     c.collect_eq_counts_into(out);
                 }
             }
+            _ => {}
+        }
+    }
+
+    /// Walks the constraint tree, invoking `visitor` on every node.
+    /// Used by validation to check that all `piece` / `color` /
+    /// `square` references are consistent with the problem
+    /// declarations.
+    pub(crate) fn walk(&self, visitor: &mut impl FnMut(&Self)) {
+        visitor(self);
+        match self {
+            Self::And(children) | Self::Or(children) => {
+                for c in children {
+                    c.walk(visitor);
+                }
+            }
+            Self::Not(inner) => inner.walk(visitor),
             _ => {}
         }
     }

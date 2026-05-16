@@ -24,6 +24,12 @@ chess-startpos-rs = "0.1"
 
 Minimum supported Rust version: **1.80**.
 
+### Optional features
+
+| Feature | Effect |
+|---|---|
+| `serde` | Derives `Serialize` / `Deserialize` on `Constraint`, `CountOp`, `SquareColor`, `Problem`, `ValidationError`, and `chess::Piece`. |
+
 ## Quick start
 
 Chess users — the four named presets:
@@ -109,7 +115,7 @@ let problem: Problem<Card> = Problem {
     ],
     pieces: vec![Card::Ace, Card::King, Card::Queen],   // alphabet
     constraint: Constraint::And(vec![
-        // Fix the multiset to 2 + 2 + 2 = 6.
+        // Pin exactly 2 of each kind (6 squares total).
         Constraint::Count { piece: Card::Ace,   op: CountOp::Eq, value: 2 },
         Constraint::Count { piece: Card::King,  op: CountOp::Eq, value: 2 },
         Constraint::Count { piece: Card::Queen, op: CountOp::Eq, value: 2 },
@@ -161,10 +167,35 @@ let problem: Problem<Bead, Zone> = Problem {
 The solver enumerates length-`num_squares` sequences from the alphabet
 and filters by the constraint tree. When every alphabet member has a
 `Constraint::Count { Eq, n }` and the values sum to `num_squares`, it
-takes a fast path that walks distinct multiset permutations directly.
+takes a fast path that walks distinct piece arrangements directly
+instead of the full Cartesian product.
 
 For a longer worked example, see [`examples/custom.rs`](examples/custom.rs)
 or run `cargo run --example custom`.
+
+### Validation
+
+`Problem::validate()` returns `Ok(())` if the problem is internally
+consistent — colour vector length matches `num_squares` (or is empty),
+every constraint references declared pieces, colours, and squares —
+or a `ValidationError` otherwise. Useful before solving large
+problems. The builder has a matching `try_build()` that runs
+`validate()` and returns the error if it fails:
+
+```rust
+use chess_startpos_rs::{chess, Constraint, CountOp, Problem, SquareColor, ValidationError};
+
+let result: Result<Problem<chess::Piece>, _> = Problem::builder()
+    .squares(8)
+    .colors(vec![SquareColor::Light]) // mismatched: 1 ≠ 8
+    .pieces([chess::Piece::King])
+    .try_build();
+assert!(matches!(result, Err(ValidationError::ColorLengthMismatch { .. })));
+```
+
+`count()` / `iter()` / `sample()` do not auto-validate; call
+`validate()` (or use `try_build`) up front if you want errors over
+silent zero-result enumeration.
 
 ### Builder alternative
 
@@ -192,12 +223,15 @@ assert_eq!(problem.count(), 90);
 
 ## Solver
 
-For v0.1 the solver is hand-rolled: it iterates distinct multiset
-permutations via the standard next-permutation algorithm and filters by
-the constraint. For chess back-rank problems (up to 5040 candidates) this
-is microseconds, zero extra dependencies. A general-purpose CSP backend
-(behind a feature flag) is tracked in [#7](https://github.com/ywzvennu/chess-startpos-rs/issues/7)
-for whenever a larger problem size makes it worth the extra surface.
+For v0.1 the solver is hand-rolled: it enumerates piece arrangements
+over the declared alphabet via the standard next-permutation algorithm
+(when piece counts are fully fixed via `Count{Eq}` constraints) or via
+the Cartesian product over the alphabet (otherwise), then filters by
+the constraint tree. For chess back-rank problems (up to 5040
+candidates) this is microseconds, zero extra dependencies. A
+general-purpose CSP backend (behind a feature flag) is tracked in
+[#7](https://github.com/ywzvennu/chess-startpos-rs/issues/7) for
+whenever a larger problem size makes it worth the extra surface.
 
 ## Status
 
