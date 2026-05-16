@@ -1,0 +1,16 @@
+[package]
+name = "chess-startpos-rs"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "MIT"
+authors = ["ywzvennu"]
+description = "Generate, count, and sample chess back-rank arrangements under composable constraints"
+repository = "https://github.com/ywzvennu/chess-startpos-rs"
+documentation = "https://docs.rs/chess-startpos-rs"
+readme = "README.md"
+keywords = ["chess", "chess960", "fischer", "shuffle", "starting-position"]
+categories = ["game-development"]
+exclude = [
+    ".github/",
+]
