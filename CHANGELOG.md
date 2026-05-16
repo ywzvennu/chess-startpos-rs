@@ -27,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `standard()` — count `1`.
   - `shuffle()` — count `5040`.
   - `chess_2880()` — count `2880` (bishops on opposite-colour squares).
-  - `chess960()` — count `960` (bishops opposite + king between rooks).
+  - `chess_960()` — count `960` (bishops opposite + king between rooks).
 - `examples/quickstart.rs` showing the four presets, indexed lookup,
   random sampling, and constraint narrowing.
 - MIT licence, README, contributor guide, GitHub issue/PR templates,
