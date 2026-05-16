@@ -85,6 +85,56 @@ And three combinators:
 
 `op` is one of `Eq`, `NotEq`, `Le`, `Lt`, `Ge`, `Gt`.
 
+## Custom piece kinds and boards
+
+The `chess` module is a convenience layer; the core
+(`Constraint<P>` / `Problem<P>`) is generic. Define your own piece enum
+and use any board size:
+
+```rust
+use chess_startpos_rs::{Constraint, CountOp, Problem, SquareColor};
+
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+enum Card { Ace, King, Queen }
+
+// Six-card lineup, two halves marked Light / Dark for the colour-keyed
+// count constraint to key off.
+let problem = Problem {
+    num_squares: 6,
+    square_colors: vec![
+        SquareColor::Light, SquareColor::Light, SquareColor::Light,
+        SquareColor::Dark,  SquareColor::Dark,  SquareColor::Dark,
+    ],
+    pieces: vec![
+        Card::Ace, Card::Ace, Card::King, Card::King, Card::Queen, Card::Queen,
+    ],
+    constraint: Constraint::And(vec![
+        // Split aces across the two halves.
+        Constraint::CountOnColor {
+            piece: Card::Ace, color: SquareColor::Light,
+            op: CountOp::Eq, value: 1,
+        },
+        Constraint::CountOnColor {
+            piece: Card::Ace, color: SquareColor::Dark,
+            op: CountOp::Eq, value: 1,
+        },
+        // First King precedes first Queen in the lineup.
+        Constraint::Order(vec![(Card::King, 0), (Card::Queen, 0)]),
+    ]),
+};
+
+assert_eq!(problem.count(), 27);
+let arrangement = problem.sample(7).unwrap();
+assert_eq!(arrangement.len(), 6);
+```
+
+`square_colors` is just an annotation per square — you can repurpose it
+as any binary partition (halves, parity, banded rows, ...) that your
+`CountOnColor` constraints will key off.
+
+For a longer worked example, see [`examples/custom.rs`](examples/custom.rs)
+or run `cargo run --example custom`.
+
 ## Solver
 
 For v0.1 the solver is hand-rolled: it iterates distinct multiset

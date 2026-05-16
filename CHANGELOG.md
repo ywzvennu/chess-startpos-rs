@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `chess_960().at(N)` / `iter()` / `sample(seed)` — lexicographic
     semantics (unchanged), interoperable with other chess software via
     the SP-ID bijection.
+- `examples/custom.rs` and the lib.rs preamble now document
+  bring-your-own piece kinds and non-8-square boards, and an
+  integration test suite (`tests/custom.rs`) covers count / iter / at /
+  sample / with_constraint on a 6-square card-lineup problem.
 
 ## [0.1.0] — Initial release
 
