@@ -28,7 +28,7 @@ fn main() {
     // 4. Narrow a preset with an extra constraint.
     let narrowed = chess::chess_960().with_constraint(Constraint::At {
         piece: chess::Piece::Queen,
-        square: 3, // file d
+        square: chess::file::D,
     });
     println!(
         "chess_960 with Queen on d1: count = {} (down from {})",

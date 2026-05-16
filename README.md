@@ -42,11 +42,13 @@ let pos = chess::chess_960().at(0).unwrap();
 // Uniform random sampling, deterministic in the seed.
 let pos = chess::chess_960().sample(42).unwrap();
 
-// Narrow any preset with extra constraints.
+// Narrow any preset with extra constraints. File letters
+// (`chess::file::A..chess::file::H`) and `chess::file::of('a')` resolve
+// to back-rank square indices.
 use chess_startpos_rs::Constraint;
 let with_queen_on_d1 = chess::chess_960().with_constraint(Constraint::At {
     piece: chess::Piece::Queen,
-    square: 3,
+    square: chess::file::D,
 });
 assert!(with_queen_on_d1.count() < chess::chess_960().count());
 ```

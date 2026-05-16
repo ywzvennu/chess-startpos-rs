@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `chess::file::A` through `chess::file::H` file-index constants for
+  readable `Constraint::At` / `NotAt` square arguments.
+- `chess::file::of(letter)` helper converting a file letter
+  (case-insensitive `a`–`h`) into its 0-based back-rank index.
+
 ## [0.1.0] — Initial release
 
 ### Added
