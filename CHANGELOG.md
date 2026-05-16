@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Validation + ergonomics + serde
+
+- New `Problem::validate() -> Result<(), ValidationError>` checks
+  `square_colors` length, that every constraint reference uses
+  declared pieces / colours / squares, and that empty
+  `square_colors` is only paired with constraints that don't
+  reference colours. `count` / `iter` / `sample` don't auto-validate.
+- New `ProblemBuilder::try_build()` — `build()` followed by
+  `validate()`.
+- New `ProblemBuilder::colors_fn(|i| …)` — assigns colours via a
+  per-index closure, expanded eagerly at builder time.
+- New `ValidationError` enum (re-exported at the crate root) with
+  variants `ColorLengthMismatch`, `UnknownPiece`, `UnknownColor`,
+  `SquareOutOfRange`. `#[non_exhaustive]`; implements `Error` +
+  `Display`.
+- `Display` impl on `chess::Piece` — single-letter algebraic
+  (`K`, `Q`, `R`, `B`, `N`).
+- New optional `serde` feature gating `Serialize` / `Deserialize`
+  on `Constraint`, `CountOp`, `SquareColor`, `Problem`,
+  `ValidationError`, and `chess::Piece`.
+- Doc notes: `Constraint::Relative::offset` is `i32` (boards
+  larger than `i32::MAX` not supported); `square_colors` may be
+  empty (treated as "no colour partition declared").
+
 ### Builder API
 
 - New `Problem::builder()` returns a `ProblemBuilder<P, C>` for

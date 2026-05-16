@@ -16,11 +16,19 @@ exclude = [
     ".github/",
 ]
 
+[features]
+default = []
+# Derive `serde::{Serialize, Deserialize}` on `Constraint`, `CountOp`,
+# `SquareColor`, `Problem`, `ValidationError`, and `chess::Piece`.
+serde = ["dep:serde"]
+
 [dependencies]
 fastrand = "2"
+serde = { version = "1", features = ["derive"], optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.7", default-features = false, features = ["cargo_bench_support"] }
+serde_json = "1"
 
 [[bench]]
 name = "presets"

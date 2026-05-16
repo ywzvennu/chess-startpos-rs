@@ -2,8 +2,71 @@
 //! enumerate / count entry points.
 
 use std::collections::HashMap;
+use std::fmt;
 
 use crate::{ColorKind, Constraint, PieceKind, SquareColor};
+
+/// Reasons a [`Problem`] can fail [`validate`](Problem::validate).
+///
+/// Returned by [`Problem::validate`] and
+/// [`ProblemBuilder::try_build`]. Variants only carry the
+/// problem-relative indices needed to locate the offending item; they
+/// don't carry `P` or `C` values so that the error type can be
+/// `Eq + Hash + Clone` without dragging those bounds onto the user's
+/// piece / colour kinds.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
+pub enum ValidationError {
+    /// `square_colors` is non-empty but its length doesn't match
+    /// `num_squares`. An empty `square_colors` is treated as
+    /// "no colour partition declared" and is **not** an error —
+    /// colour-keyed constraints will see zero matches.
+    ColorLengthMismatch {
+        /// `num_squares`.
+        expected: usize,
+        /// `square_colors.len()`.
+        actual: usize,
+    },
+    /// A constraint references a piece kind that is not in the
+    /// problem's alphabet (`pieces`).
+    UnknownPiece,
+    /// A `CountOnColor` constraint references a colour that doesn't
+    /// appear in `square_colors`.
+    UnknownColor,
+    /// An `At` / `NotAt` constraint references a square index
+    /// `>= num_squares`.
+    SquareOutOfRange {
+        /// The offending square index.
+        square: usize,
+        /// `num_squares`.
+        num_squares: usize,
+    },
+}
+
+impl fmt::Display for ValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ColorLengthMismatch { expected, actual } => write!(
+                f,
+                "square_colors has length {actual}, expected {expected} (= num_squares)",
+            ),
+            Self::UnknownPiece => f.write_str("constraint references a piece not in the alphabet"),
+            Self::UnknownColor => {
+                f.write_str("CountOnColor references a colour not in square_colors")
+            }
+            Self::SquareOutOfRange {
+                square,
+                num_squares,
+            } => write!(
+                f,
+                "constraint references square {square} but num_squares is {num_squares}",
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ValidationError {}
 
 /// A constraint-satisfaction problem: a fixed board (size + per-square
 /// colour from a user-defined colour set), an alphabet of available
@@ -17,12 +80,26 @@ use crate::{ColorKind, Constraint, PieceKind, SquareColor};
 /// binary light/dark partition used by chess. For N-way partitions
 /// define your own enum and use it as the `C` type parameter.
 ///
+/// `square_colors` must either be empty (no colour partition
+/// declared; colour-keyed constraints always see zero matches) or
+/// have length exactly `num_squares`. Call [`validate`](Self::validate)
+/// to check this and that every constraint references only declared
+/// pieces, colours, and squares.
+///
 /// Solve by calling [`Problem::count`] for the population size or
 /// [`Problem::iter`] to stream all satisfying arrangements.
 ///
 /// If `pieces` is empty or `num_squares == 0`, the problem has no
 /// arrangements to enumerate and `count()` returns `0`.
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(bound(
+        serialize = "P: serde::Serialize, C: serde::Serialize",
+        deserialize = "P: serde::Deserialize<'de>, C: serde::Deserialize<'de>"
+    ))
+)]
 pub struct Problem<P: PieceKind, C: ColorKind = SquareColor> {
     /// Number of squares (e.g. `8` for a chess back rank).
     pub num_squares: usize,
@@ -37,6 +114,82 @@ pub struct Problem<P: PieceKind, C: ColorKind = SquareColor> {
 }
 
 impl<P: PieceKind, C: ColorKind> Problem<P, C> {
+    /// Checks `self` is internally consistent and returns a
+    /// `ValidationError` if not.
+    ///
+    /// Specifically:
+    /// - `square_colors` is either empty or `num_squares` long.
+    /// - Every piece referenced by a constraint is in `self.pieces`.
+    /// - Every colour referenced by a `CountOnColor` is in
+    ///   `self.square_colors`. An empty `square_colors` is valid
+    ///   only for problems that have **no** `CountOnColor`
+    ///   constraints; otherwise the colour reference is treated as
+    ///   unknown.
+    /// - Every `At` / `NotAt` square index is `< num_squares`.
+    ///
+    /// `count()` / `iter()` / `sample()` do **not** auto-validate; if
+    /// you need correctness up front, call this first or use
+    /// [`ProblemBuilder::try_build`].
+    pub fn validate(&self) -> Result<(), ValidationError> {
+        if !self.square_colors.is_empty() && self.square_colors.len() != self.num_squares {
+            return Err(ValidationError::ColorLengthMismatch {
+                expected: self.num_squares,
+                actual: self.square_colors.len(),
+            });
+        }
+
+        let alphabet = self.dedup_alphabet();
+        let mut error: Option<ValidationError> = None;
+        self.constraint.walk(&mut |c| {
+            if error.is_some() {
+                return;
+            }
+            match c {
+                Constraint::Count { piece, .. } if !alphabet.contains(piece) => {
+                    error = Some(ValidationError::UnknownPiece);
+                }
+                Constraint::CountOnColor { piece, color, .. } => {
+                    if !alphabet.contains(piece) {
+                        error = Some(ValidationError::UnknownPiece);
+                    } else if !self.square_colors.contains(color) {
+                        // Includes the case where `square_colors` is
+                        // empty: declaring "no colour partition" and
+                        // then referencing a colour is a contradiction.
+                        error = Some(ValidationError::UnknownColor);
+                    }
+                }
+                Constraint::At { piece, square } | Constraint::NotAt { piece, square } => {
+                    if !alphabet.contains(piece) {
+                        error = Some(ValidationError::UnknownPiece);
+                    } else if *square >= self.num_squares {
+                        error = Some(ValidationError::SquareOutOfRange {
+                            square: *square,
+                            num_squares: self.num_squares,
+                        });
+                    }
+                }
+                Constraint::Order(chain) => {
+                    for (p, _) in chain {
+                        if !alphabet.contains(p) {
+                            error = Some(ValidationError::UnknownPiece);
+                            return;
+                        }
+                    }
+                }
+                Constraint::Relative { lhs, rhs, .. } => {
+                    if !alphabet.contains(&lhs.0) || !alphabet.contains(&rhs.0) {
+                        error = Some(ValidationError::UnknownPiece);
+                    }
+                }
+                _ => {}
+            }
+        });
+        match error {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
+    }
+
     /// Returns a fresh empty [`ProblemBuilder`] for fluent
     /// construction.
     ///
@@ -276,6 +429,29 @@ impl<P: PieceKind, C: ColorKind> ProblemBuilder<P, C> {
         self
     }
 
+    /// Sets `square_colors` to `(0..num_squares).map(f).collect()`.
+    /// The closure receives each 0-based square index and returns
+    /// its colour. Call after `.squares(n)`.
+    ///
+    /// ```
+    /// use chess_startpos_rs::{Problem, SquareColor};
+    ///
+    /// // 6-square board split into halves: first 3 Light, last 3 Dark.
+    /// let problem: Problem<u8> = Problem::builder()
+    ///     .squares(6)
+    ///     .colors_fn(|i| if i < 3 { SquareColor::Light } else { SquareColor::Dark })
+    ///     .build();
+    /// assert_eq!(problem.square_colors.len(), 6);
+    /// ```
+    #[must_use]
+    pub fn colors_fn<F>(mut self, f: F) -> Self
+    where
+        F: FnMut(usize) -> C,
+    {
+        self.square_colors = (0..self.num_squares).map(f).collect();
+        self
+    }
+
     /// Replaces the alphabet with `alphabet`. Duplicates are silently
     /// deduplicated by the solver.
     #[must_use]
@@ -299,10 +475,14 @@ impl<P: PieceKind, C: ColorKind> ProblemBuilder<P, C> {
         self
     }
 
-    /// Finalises into a [`Problem`]. The accumulated constraints are
-    /// wrapped in [`Constraint::And`] (a single constraint is wrapped
-    /// alone; zero constraints become `And(vec![])`, which is always
-    /// satisfied).
+    /// Finalises into a [`Problem`] without validating it. The
+    /// accumulated constraints are wrapped in [`Constraint::And`] (a
+    /// single constraint is stored bare; zero constraints become
+    /// `And(vec![])`, which is always satisfied).
+    ///
+    /// To check internal consistency before solving, use
+    /// [`try_build`](Self::try_build) instead, or call
+    /// [`Problem::validate`] on the returned value.
     #[must_use]
     pub fn build(self) -> Problem<P, C> {
         let constraint = match self.constraints.len() {
@@ -316,6 +496,15 @@ impl<P: PieceKind, C: ColorKind> ProblemBuilder<P, C> {
             pieces: self.pieces,
             constraint,
         }
+    }
+
+    /// Like [`build`](Self::build) but runs [`Problem::validate`] on
+    /// the result, returning the validation error instead of the
+    /// problem if it fails.
+    pub fn try_build(self) -> Result<Problem<P, C>, ValidationError> {
+        let problem = self.build();
+        problem.validate()?;
+        Ok(problem)
     }
 }
 
@@ -465,6 +654,7 @@ mod tests {
 
     /// A tiny piece kind for unit tests.
     #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     enum Tile {
         A,
         B,
@@ -940,6 +1130,166 @@ mod tests {
     }
 
     #[test]
+    fn validate_accepts_consistent_problem() {
+        let problem = Problem {
+            num_squares: 3,
+            square_colors: light_dark(3),
+            pieces: vec![Tile::A, Tile::B],
+            constraint: fixed_counts(&[(Tile::A, 1), (Tile::B, 2)]),
+        };
+        assert!(problem.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_accepts_empty_colors() {
+        // Empty `square_colors` is "no colour partition declared".
+        let problem: Problem<Tile> = Problem {
+            num_squares: 3,
+            square_colors: vec![],
+            pieces: vec![Tile::A, Tile::B],
+            constraint: Constraint::And(vec![]),
+        };
+        assert!(problem.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_mismatched_color_length() {
+        let problem: Problem<Tile> = Problem {
+            num_squares: 3,
+            square_colors: vec![SquareColor::Light], // only 1 of 3
+            pieces: vec![Tile::A],
+            constraint: Constraint::And(vec![]),
+        };
+        assert_eq!(
+            problem.validate(),
+            Err(ValidationError::ColorLengthMismatch {
+                expected: 3,
+                actual: 1,
+            }),
+        );
+    }
+
+    #[test]
+    fn validate_rejects_unknown_piece() {
+        let problem: Problem<Tile> = Problem {
+            num_squares: 3,
+            square_colors: light_dark(3),
+            pieces: vec![Tile::A], // Tile::B not declared
+            constraint: Constraint::At {
+                piece: Tile::B,
+                square: 0,
+            },
+        };
+        assert_eq!(problem.validate(), Err(ValidationError::UnknownPiece));
+    }
+
+    #[test]
+    fn validate_rejects_unknown_color() {
+        // square_colors only has Light; constraint references Dark.
+        let problem: Problem<Tile> = Problem {
+            num_squares: 2,
+            square_colors: vec![SquareColor::Light, SquareColor::Light],
+            pieces: vec![Tile::A],
+            constraint: Constraint::CountOnColor {
+                piece: Tile::A,
+                color: SquareColor::Dark,
+                op: CountOp::Eq,
+                value: 0,
+            },
+        };
+        assert_eq!(problem.validate(), Err(ValidationError::UnknownColor));
+    }
+
+    #[test]
+    fn validate_rejects_count_on_color_when_no_colors_declared() {
+        // Empty square_colors + a CountOnColor → contradiction.
+        let problem: Problem<Tile> = Problem {
+            num_squares: 2,
+            square_colors: vec![],
+            pieces: vec![Tile::A],
+            constraint: Constraint::CountOnColor {
+                piece: Tile::A,
+                color: SquareColor::Light,
+                op: CountOp::Eq,
+                value: 1,
+            },
+        };
+        assert_eq!(problem.validate(), Err(ValidationError::UnknownColor));
+    }
+
+    #[test]
+    fn validate_rejects_square_out_of_range() {
+        let problem: Problem<Tile> = Problem {
+            num_squares: 3,
+            square_colors: light_dark(3),
+            pieces: vec![Tile::A],
+            constraint: Constraint::At {
+                piece: Tile::A,
+                square: 5, // out of range
+            },
+        };
+        assert_eq!(
+            problem.validate(),
+            Err(ValidationError::SquareOutOfRange {
+                square: 5,
+                num_squares: 3,
+            }),
+        );
+    }
+
+    #[test]
+    fn validate_walks_into_combinators() {
+        // UnknownPiece inside a nested Or should still be caught.
+        let problem: Problem<Tile> = Problem {
+            num_squares: 2,
+            square_colors: light_dark(2),
+            pieces: vec![Tile::A],
+            constraint: Constraint::Or(vec![
+                Constraint::At {
+                    piece: Tile::A,
+                    square: 0,
+                },
+                Constraint::Not(Box::new(Constraint::At {
+                    piece: Tile::B, // unknown
+                    square: 1,
+                })),
+            ]),
+        };
+        assert_eq!(problem.validate(), Err(ValidationError::UnknownPiece));
+    }
+
+    #[test]
+    fn try_build_returns_error_for_invalid_problem() {
+        let result: Result<Problem<Tile>, _> = Problem::builder()
+            .squares(3)
+            .colors(vec![SquareColor::Light]) // mismatched
+            .pieces([Tile::A])
+            .try_build();
+        assert!(matches!(
+            result,
+            Err(ValidationError::ColorLengthMismatch { .. })
+        ));
+    }
+
+    #[test]
+    fn builder_colors_fn_assigns_per_index() {
+        let problem: Problem<Tile> = Problem::builder()
+            .squares(6)
+            .colors_fn(|i| {
+                if i < 3 {
+                    SquareColor::Light
+                } else {
+                    SquareColor::Dark
+                }
+            })
+            .pieces([Tile::A])
+            .build();
+        assert_eq!(problem.square_colors.len(), 6);
+        assert_eq!(problem.square_colors[0], SquareColor::Light);
+        assert_eq!(problem.square_colors[5], SquareColor::Dark);
+    }
+
+    #[test]
     fn builder_matches_struct_literal_on_chess_960() {
         // Build the same problem two ways and assert they have the
         // same population.
@@ -1031,6 +1381,22 @@ mod tests {
         assert_eq!(problem.count(), 4);
         // Single constraint is stored bare, not wrapped in And.
         assert!(matches!(problem.constraint, Constraint::At { .. }));
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn problem_serde_roundtrip() {
+        let problem = Problem {
+            num_squares: 3,
+            square_colors: light_dark(3),
+            pieces: vec![Tile::A, Tile::B],
+            constraint: fixed_counts(&[(Tile::A, 1), (Tile::B, 2)]),
+        };
+        let json = serde_json::to_string(&problem).expect("serialise");
+        let back: Problem<Tile> = serde_json::from_str(&json).expect("deserialise");
+        assert_eq!(back.num_squares, problem.num_squares);
+        assert_eq!(back.pieces, problem.pieces);
+        assert_eq!(back.count(), problem.count());
     }
 
     #[test]

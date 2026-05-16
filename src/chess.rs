@@ -4,6 +4,8 @@
 //! Callers who don't want to define their own piece kind, board, or
 //! constraint set can use one of the four named presets directly.
 
+use std::fmt;
+
 use crate::{alternating, Constraint, CountOp, Problem, SquareColor};
 
 /// The five standard back-rank chess piece kinds.
@@ -11,6 +13,7 @@ use crate::{alternating, Constraint, CountOp, Problem, SquareColor};
 /// `Pawn` is intentionally absent — pawns never appear on the back
 /// rank, so they have no role in this crate's combinatorial problem.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Piece {
     /// King.
     King,
@@ -22,6 +25,30 @@ pub enum Piece {
     Bishop,
     /// Knight.
     Knight,
+}
+
+impl fmt::Display for Piece {
+    /// Single-letter algebraic notation, white-side conventional
+    /// uppercase: `K`, `Q`, `R`, `B`, `N`.
+    ///
+    /// ```
+    /// use chess_startpos_rs::chess::Piece;
+    ///
+    /// assert_eq!(Piece::King.to_string(),   "K");
+    /// assert_eq!(Piece::Queen.to_string(),  "Q");
+    /// assert_eq!(Piece::Rook.to_string(),   "R");
+    /// assert_eq!(Piece::Bishop.to_string(), "B");
+    /// assert_eq!(Piece::Knight.to_string(), "N");
+    /// ```
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::King => "K",
+            Self::Queen => "Q",
+            Self::Rook => "R",
+            Self::Bishop => "B",
+            Self::Knight => "N",
+        })
+    }
 }
 
 /// File-letter constants and the char-to-index helper.

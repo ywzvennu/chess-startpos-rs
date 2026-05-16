@@ -24,6 +24,12 @@ chess-startpos-rs = "0.1"
 
 Minimum supported Rust version: **1.80**.
 
+### Optional features
+
+| Feature | Effect |
+|---|---|
+| `serde` | Derives `Serialize` / `Deserialize` on `Constraint`, `CountOp`, `SquareColor`, `Problem`, `ValidationError`, and `chess::Piece`. |
+
 ## Quick start
 
 Chess users — the four named presets:
@@ -165,6 +171,30 @@ takes a fast path that walks distinct multiset permutations directly.
 
 For a longer worked example, see [`examples/custom.rs`](examples/custom.rs)
 or run `cargo run --example custom`.
+
+### Validation
+
+`Problem::validate()` returns `Ok(())` if the problem is internally
+consistent — colour vector length matches `num_squares` (or is empty),
+every constraint references declared pieces, colours, and squares —
+or a `ValidationError` otherwise. Useful before solving large
+problems. The builder has a matching `try_build()` that runs
+`validate()` and returns the error if it fails:
+
+```rust
+use chess_startpos_rs::{chess, Constraint, CountOp, Problem, SquareColor, ValidationError};
+
+let result: Result<Problem<chess::Piece>, _> = Problem::builder()
+    .squares(8)
+    .colors(vec![SquareColor::Light]) // mismatched: 1 ≠ 8
+    .pieces([chess::Piece::King])
+    .try_build();
+assert!(matches!(result, Err(ValidationError::ColorLengthMismatch { .. })));
+```
+
+`count()` / `iter()` / `sample()` do not auto-validate; call
+`validate()` (or use `try_build`) up front if you want errors over
+silent zero-result enumeration.
 
 ### Builder alternative
 
