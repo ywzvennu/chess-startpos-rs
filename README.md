@@ -245,7 +245,8 @@ whenever a larger problem size makes it worth the extra surface.
 
 ## Status
 
-Initial development. Public API will stabilise at v0.1.0.
+v0.1.0 released. The public API is stable within the 0.x series;
+breaking changes require a minor version bump.
 
 ## Development
 
