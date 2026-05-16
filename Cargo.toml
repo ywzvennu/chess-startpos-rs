@@ -14,3 +14,6 @@ categories = ["game-development"]
 exclude = [
     ".github/",
 ]
+
+[dependencies]
+fastrand = "2"
