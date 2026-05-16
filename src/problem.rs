@@ -38,6 +38,30 @@ impl<P: PieceKind> Problem<P> {
         }
     }
 
+    /// Returns the `index`-th satisfying arrangement in canonical
+    /// lexicographic order, or `None` if `index >= self.count()`.
+    ///
+    /// Equivalent to `self.iter().nth(index)` with `u64` indexing.
+    #[must_use]
+    pub fn at(&self, index: u64) -> Option<Vec<P>> {
+        let idx = usize::try_from(index).ok()?;
+        self.iter().nth(idx)
+    }
+
+    /// Returns a uniformly-random arrangement satisfying the
+    /// constraint, deterministic in `seed`. `None` if the constraint
+    /// is unsatisfiable.
+    #[must_use]
+    pub fn sample(&self, seed: u64) -> Option<Vec<P>> {
+        let total = self.count();
+        if total == 0 {
+            return None;
+        }
+        let mut rng = fastrand::Rng::with_seed(seed);
+        let idx = rng.u64(..total);
+        self.at(idx)
+    }
+
     /// Returns a copy of `self` with `c` added via AND-composition.
     #[must_use]
     pub fn with_constraint(mut self, c: Constraint<P>) -> Self {
@@ -281,6 +305,61 @@ mod tests {
                 vec![Tile::B, Tile::A, Tile::A],
             ],
         );
+    }
+
+    #[test]
+    fn at_returns_lexicographic_arrangements() {
+        let problem = Problem {
+            num_squares: 3,
+            square_colors: light_dark(3),
+            pieces: vec![Tile::A, Tile::A, Tile::B],
+            constraint: Constraint::And(vec![]),
+        };
+        assert_eq!(problem.at(0), Some(vec![Tile::A, Tile::A, Tile::B]));
+        assert_eq!(problem.at(1), Some(vec![Tile::A, Tile::B, Tile::A]));
+        assert_eq!(problem.at(2), Some(vec![Tile::B, Tile::A, Tile::A]));
+        assert_eq!(problem.at(3), None);
+    }
+
+    #[test]
+    fn sample_is_deterministic_and_in_range() {
+        let problem = Problem {
+            num_squares: 3,
+            square_colors: light_dark(3),
+            pieces: vec![Tile::A, Tile::B, Tile::C],
+            constraint: Constraint::And(vec![]),
+        };
+        let arrangements: Vec<Vec<Tile>> = problem.iter().collect();
+
+        let first = problem.sample(42).expect("non-empty");
+        let again = problem.sample(42).expect("non-empty");
+        assert_eq!(first, again, "sample must be deterministic in seed");
+        assert!(
+            arrangements.contains(&first),
+            "sample must be a valid arrangement"
+        );
+    }
+
+    #[test]
+    fn sample_returns_none_for_unsatisfiable() {
+        let problem = Problem {
+            num_squares: 3,
+            square_colors: light_dark(3),
+            pieces: vec![Tile::A, Tile::B, Tile::C],
+            // Impossible: piece A must be at square 0 AND not at square 0.
+            constraint: Constraint::And(vec![
+                Constraint::At {
+                    piece: Tile::A,
+                    square: 0,
+                },
+                Constraint::NotAt {
+                    piece: Tile::A,
+                    square: 0,
+                },
+            ]),
+        };
+        assert_eq!(problem.count(), 0);
+        assert_eq!(problem.sample(0), None);
     }
 
     #[test]
