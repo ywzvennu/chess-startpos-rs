@@ -24,6 +24,59 @@ pub enum Piece {
     Pawn,
 }
 
+/// File-letter constants and the char-to-index helper.
+///
+/// Use the constants to keep `Constraint::At` / `NotAt` square arguments
+/// self-documenting:
+///
+/// ```
+/// use chess_startpos_rs::{chess, Constraint};
+///
+/// let _ = Constraint::<chess::Piece>::At {
+///     piece: chess::Piece::Queen,
+///     square: chess::file::D,
+/// };
+/// ```
+pub mod file {
+    /// File index of the `a` file (square 0 on the back rank).
+    pub const A: usize = 0;
+    /// File index of the `b` file.
+    pub const B: usize = 1;
+    /// File index of the `c` file.
+    pub const C: usize = 2;
+    /// File index of the `d` file.
+    pub const D: usize = 3;
+    /// File index of the `e` file.
+    pub const E: usize = 4;
+    /// File index of the `f` file.
+    pub const F: usize = 5;
+    /// File index of the `g` file.
+    pub const G: usize = 6;
+    /// File index of the `h` file (square 7 on the back rank).
+    pub const H: usize = 7;
+
+    /// Converts a file letter to its 0-based square index on the back rank.
+    ///
+    /// Accepts both lowercase (`'a'..='h'`) and uppercase (`'A'..='H'`) and
+    /// returns `None` for any other character.
+    ///
+    /// ```
+    /// use chess_startpos_rs::chess;
+    ///
+    /// assert_eq!(chess::file::of('a'), Some(0));
+    /// assert_eq!(chess::file::of('H'), Some(7));
+    /// assert_eq!(chess::file::of('1'), None);
+    /// ```
+    #[must_use]
+    pub fn of(letter: char) -> Option<usize> {
+        match letter {
+            'a'..='h' => Some(letter as usize - 'a' as usize),
+            'A'..='H' => Some(letter as usize - 'A' as usize),
+            _ => None,
+        }
+    }
+}
+
 /// The standard back-rank piece multiset (KQRRBBNN), in a1..h1 order
 /// matching the FIDE starting position.
 pub const STANDARD_BACK_RANK: [Piece; 8] = [
@@ -207,5 +260,34 @@ mod tests {
         });
         assert!(narrowed.count() < chess_960().count());
         assert!(narrowed.count() > 0);
+    }
+
+    #[test]
+    fn file_constants_match_alphabet() {
+        use file::*;
+        assert_eq!([A, B, C, D, E, F, G, H], [0, 1, 2, 3, 4, 5, 6, 7]);
+    }
+
+    #[test]
+    fn file_letter_to_index() {
+        for (i, ch) in ('a'..='h').enumerate() {
+            assert_eq!(file::of(ch), Some(i));
+            assert_eq!(file::of(ch.to_ascii_uppercase()), Some(i));
+        }
+        assert_eq!(file::of('i'), None);
+        assert_eq!(file::of('1'), None);
+        assert_eq!(file::of(' '), None);
+    }
+
+    #[test]
+    fn file_constants_usable_in_at_constraint() {
+        // Same narrowing as with_constraint_narrows_chess_960 but using
+        // the file constant for readability.
+        let with_queen_on_d = chess_960().with_constraint(Constraint::At {
+            piece: Piece::Queen,
+            square: file::D,
+        });
+        assert!(with_queen_on_d.count() > 0);
+        assert!(with_queen_on_d.count() < chess_960().count());
     }
 }
