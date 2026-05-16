@@ -46,7 +46,7 @@ let standard = preset.sp_id(518).unwrap();
 assert_eq!(preset.sp_id_of(&standard), Some(518));
 
 // Uniform random sampling, deterministic in the seed.
-let pos = chess::chess_960().sample(42).unwrap();
+let pos = chess::chess_960().sample(42);
 
 // Narrow any preset with extra constraints. File letters
 // (`chess::file::A..chess::file::H`) and `chess::file::of('a')` resolve
@@ -85,11 +85,13 @@ And three combinators:
 
 `op` is one of `Eq`, `NotEq`, `Le`, `Lt`, `Ge`, `Gt`.
 
-## Custom piece kinds and boards
+## Custom piece kinds, boards, and colours
 
 The `chess` module is a convenience layer; the core
-(`Constraint<P>` / `Problem<P>`) is generic. Define your own piece enum
-and use any board size:
+(`Constraint<P, C>` / `Problem<P, C>`) is generic over **both** the
+piece kind and the colour kind. `pieces` is the *alphabet* — a set of
+distinct kinds — not a multiset with repetition. Multiplicities come
+from `Constraint::Count { piece, Eq, value }` entries.
 
 ```rust
 use chess_startpos_rs::{Constraint, CountOp, Problem, SquareColor};
@@ -97,19 +99,19 @@ use chess_startpos_rs::{Constraint, CountOp, Problem, SquareColor};
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 enum Card { Ace, King, Queen }
 
-// Six-card lineup, two halves marked Light / Dark for the colour-keyed
-// count constraint to key off.
-let problem = Problem {
+let problem: Problem<Card> = Problem {
     num_squares: 6,
     square_colors: vec![
         SquareColor::Light, SquareColor::Light, SquareColor::Light,
         SquareColor::Dark,  SquareColor::Dark,  SquareColor::Dark,
     ],
-    pieces: vec![
-        Card::Ace, Card::Ace, Card::King, Card::King, Card::Queen, Card::Queen,
-    ],
+    pieces: vec![Card::Ace, Card::King, Card::Queen],   // alphabet
     constraint: Constraint::And(vec![
-        // Split aces across the two halves.
+        // Fix the multiset to 2 + 2 + 2 = 6.
+        Constraint::Count { piece: Card::Ace,   op: CountOp::Eq, value: 2 },
+        Constraint::Count { piece: Card::King,  op: CountOp::Eq, value: 2 },
+        Constraint::Count { piece: Card::Queen, op: CountOp::Eq, value: 2 },
+        // Aces split across the two halves.
         Constraint::CountOnColor {
             piece: Card::Ace, color: SquareColor::Light,
             op: CountOp::Eq, value: 1,
@@ -118,19 +120,46 @@ let problem = Problem {
             piece: Card::Ace, color: SquareColor::Dark,
             op: CountOp::Eq, value: 1,
         },
-        // First King precedes first Queen in the lineup.
+        // First King precedes first Queen.
         Constraint::Order(vec![(Card::King, 0), (Card::Queen, 0)]),
     ]),
 };
 
 assert_eq!(problem.count(), 27);
-let arrangement = problem.sample(7).unwrap();
-assert_eq!(arrangement.len(), 6);
 ```
 
-`square_colors` is just an annotation per square — you can repurpose it
-as any binary partition (halves, parity, banded rows, ...) that your
-`CountOnColor` constraints will key off.
+For N-way colour partitions (halves, thirds, fairy zones …) define
+your own colour enum and pass it as the `C` type parameter:
+
+```rust
+use chess_startpos_rs::{Constraint, CountOp, Problem};
+
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+enum Zone { Red, Green, Blue }
+
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+enum Bead { White, Black }
+
+let problem: Problem<Bead, Zone> = Problem {
+    num_squares: 6,
+    square_colors: vec![Zone::Red, Zone::Red, Zone::Green, Zone::Green, Zone::Blue, Zone::Blue],
+    pieces: vec![Bead::White, Bead::Black],
+    constraint: Constraint::And(vec![
+        Constraint::Count { piece: Bead::White, op: CountOp::Eq, value: 3 },
+        Constraint::Count { piece: Bead::Black, op: CountOp::Eq, value: 3 },
+        Constraint::CountOnColor {
+            piece: Bead::White, color: Zone::Red,
+            op: CountOp::Eq, value: 1,
+        },
+        // ...
+    ]),
+};
+```
+
+If every alphabet member has a `Constraint::Count{Eq}` and the values
+sum to `num_squares`, the solver permutes that exact multiset (fast
+path). Otherwise it enumerates length-N sequences from the alphabet
+and filters — expressive but more expensive.
 
 For a longer worked example, see [`examples/custom.rs`](examples/custom.rs)
 or run `cargo run --example custom`.

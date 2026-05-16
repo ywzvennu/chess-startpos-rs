@@ -22,7 +22,7 @@ fn main() {
     println!("chess_960[959] = {last:?}");
 
     // 3. Uniformly random, deterministic in seed.
-    let drawn = chess::chess_960().sample(0xC0FFEE).expect("non-empty");
+    let drawn = chess::chess_960().sample(0xC0FFEE);
     println!("chess_960 sample(seed=0xC0FFEE) = {drawn:?}");
 
     // 4. Narrow a preset with an extra constraint.

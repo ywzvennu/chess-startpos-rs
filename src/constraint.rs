@@ -1,9 +1,16 @@
 //! Constraint primitives and combinators.
 
-use crate::PieceKind;
+use crate::{ColorKind, PieceKind};
 
-/// Colour of a square, used by colour-keyed count constraints.
+/// Colour of a square — the default binary partition used by chess
+/// (and the default type parameter `C` for [`Constraint`] /
+/// [`crate::Problem`]).
+///
+/// For N-way colour partitions, define your own enum and use it as
+/// the `C` type parameter. Any `Copy + Eq + Hash + Debug` type
+/// satisfies [`ColorKind`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[non_exhaustive]
 pub enum SquareColor {
     /// Light-coloured square.
     Light,
@@ -13,6 +20,7 @@ pub enum SquareColor {
 
 /// Comparison operator for count constraints.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[non_exhaustive]
 pub enum CountOp {
     /// Equal.
     Eq,
@@ -50,10 +58,18 @@ impl CountOp {
 ///
 /// Primitive constraints test a property of the arrangement;
 /// combinator constraints (`And` / `Or` / `Not`) compose them.
+///
+/// `P` is the piece kind. `C` is the colour kind (defaults to
+/// [`SquareColor`] — the binary light/dark partition).
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Constraint<P> {
+#[non_exhaustive]
+pub enum Constraint<P, C = SquareColor> {
     /// Number of occurrences of `piece` across the arrangement
     /// satisfies `(op, value)`.
+    ///
+    /// Constraints of the form `Count { piece, op: Eq, value }`
+    /// double as the way to declare the multiset's multiplicity for
+    /// each alphabet member — see the crate-level docs.
     Count {
         /// Piece kind to count.
         piece: P,
@@ -69,7 +85,7 @@ pub enum Constraint<P> {
         /// Piece kind to count.
         piece: P,
         /// Square colour to count on.
-        color: SquareColor,
+        color: C,
         /// Comparison operator.
         op: CountOp,
         /// Right-hand value.
@@ -133,19 +149,19 @@ pub enum Constraint<P> {
         offset: i32,
     },
     /// Logical AND: all child constraints must hold.
-    And(Vec<Constraint<P>>),
+    And(Vec<Constraint<P, C>>),
     /// Logical OR: at least one child constraint must hold.
-    Or(Vec<Constraint<P>>),
+    Or(Vec<Constraint<P, C>>),
     /// Logical NOT: child constraint must not hold.
-    Not(Box<Constraint<P>>),
+    Not(Box<Constraint<P, C>>),
 }
 
-impl<P: PieceKind> Constraint<P> {
+impl<P: PieceKind, C: ColorKind> Constraint<P, C> {
     /// Returns whether `arrangement` satisfies this constraint.
     ///
     /// `arrangement.len()` and `colors.len()` must agree.
     #[must_use]
-    pub fn evaluate(&self, arrangement: &[P], colors: &[SquareColor]) -> bool {
+    pub fn evaluate(&self, arrangement: &[P], colors: &[C]) -> bool {
         match self {
             Self::Count { piece, op, value } => {
                 let n = arrangement.iter().filter(|p| *p == piece).count();
@@ -196,6 +212,32 @@ impl<P: PieceKind> Constraint<P> {
             Self::And(children) => children.iter().all(|c| c.evaluate(arrangement, colors)),
             Self::Or(children) => children.iter().any(|c| c.evaluate(arrangement, colors)),
             Self::Not(inner) => !inner.evaluate(arrangement, colors),
+        }
+    }
+
+    /// Collects every `Constraint::Count { piece, op: Eq, value }`
+    /// keyed by `piece` from `self` and its top-level `And`-nested
+    /// children. Used by the solver to derive the multiset to
+    /// permute from a partially-declarative problem.
+    pub(crate) fn collect_eq_counts(&self) -> Vec<(P, usize)> {
+        let mut out = Vec::new();
+        self.collect_eq_counts_into(&mut out);
+        out
+    }
+
+    fn collect_eq_counts_into(&self, out: &mut Vec<(P, usize)>) {
+        match self {
+            Self::Count {
+                piece,
+                op: CountOp::Eq,
+                value,
+            } => out.push((*piece, *value)),
+            Self::And(children) => {
+                for c in children {
+                    c.collect_eq_counts_into(out);
+                }
+            }
+            _ => {}
         }
     }
 }
