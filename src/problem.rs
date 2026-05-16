@@ -312,10 +312,7 @@ impl<P: PieceKind, C: ColorKind> Problem<P, C> {
 
     /// Returns a copy of `self` with `c` added via AND-composition.
     #[must_use]
-    pub fn with_constraint(&self, c: Constraint<P, C>) -> Self
-    where
-        C: Clone,
-    {
+    pub fn with_constraint(&self, c: Constraint<P, C>) -> Self {
         let mut next = self.clone();
         next.constraint = match next.constraint {
             Constraint::And(mut cs) => {
@@ -545,6 +542,25 @@ impl<P: PieceKind, C: ColorKind> ProblemBuilder<P, C> {
     /// Like [`build`](Self::build) but runs [`Problem::validate`] on
     /// the result, returning the validation error instead of the
     /// problem if it fails.
+    ///
+    /// ```
+    /// use chess_startpos_rs::{chess, Problem, SquareColor, ValidationError};
+    ///
+    /// // Builder forgot to call `.alternating_colors(...)` after
+    /// // `.squares(8)`; `square_colors` ends up length 0.
+    /// // That's allowed iff no constraint references colours — but
+    /// // here we omit colours *and* don't add any constraints, so
+    /// // it's fine. Now break it by mismatching the colour vec:
+    /// let bad: Result<Problem<chess::Piece>, _> = Problem::builder()
+    ///     .squares(8)
+    ///     .colors(vec![SquareColor::Light]) // length 1, not 8
+    ///     .pieces([chess::Piece::King])
+    ///     .try_build();
+    /// assert!(matches!(
+    ///     bad,
+    ///     Err(ValidationError::ColorLengthMismatch { expected: 8, actual: 1 }),
+    /// ));
+    /// ```
     pub fn try_build(self) -> Result<Problem<P, C>, ValidationError> {
         let problem = self.build();
         problem.validate()?;

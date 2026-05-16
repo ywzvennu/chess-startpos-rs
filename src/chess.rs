@@ -3,6 +3,10 @@
 //!
 //! Callers who don't want to define their own piece kind, board, or
 //! constraint set can use one of the four named presets directly.
+//!
+//! All square indices are **0-based**: square `0` is `a1`, square `7`
+//! is `h1`. Use [`file::A`]..[`file::H`] or [`file::of`] for the
+//! letter ↔ index conversion.
 
 use std::fmt;
 
@@ -118,6 +122,16 @@ pub const STANDARD_BACK_RANK: [Piece; 8] = [
 
 /// Returns the standard 8-square back-rank colour layout, with
 /// `a1 = Dark` and squares alternating.
+///
+/// ```
+/// use chess_startpos_rs::{chess, SquareColor};
+///
+/// let colors = chess::back_rank_colors();
+/// assert_eq!(colors.len(), 8);
+/// assert_eq!(colors[0], SquareColor::Dark);  // a1
+/// assert_eq!(colors[1], SquareColor::Light); // b1
+/// assert_eq!(colors[7], SquareColor::Light); // h1
+/// ```
 #[must_use]
 pub fn back_rank_colors() -> Vec<SquareColor> {
     alternating(8, SquareColor::Dark, SquareColor::Light)

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Round-4 polish
+
+- `Cargo.toml` keywords: dropped weak `shuffle` and `starting-position`;
+  added `csp` and `combinatorics` for better crates.io discoverability.
+- Added `[package.metadata.docs.rs] all-features = true` so docs.rs
+  builds with the `serde` feature enabled.
+- Removed the redundant `where C: Clone` bound on
+  `Problem::with_constraint`; `ColorKind: Copy` already implies it.
+- Documented 0-based square indexing in README + chess module.
+- README quickstart now mentions `Problem::at` / `sample` are
+  `Option`-returning for unsatisfiable problems.
+- New doctests: `try_build` with a `ColorLengthMismatch` error,
+  `Constraint::Relative` shape, `chess::back_rank_colors()` layout.
+
 ### Validation + ergonomics + serde
 
 - New `Problem::validate() -> Result<(), ValidationError>` checks

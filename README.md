@@ -68,6 +68,16 @@ assert!(with_queen_on_d1.count() < chess::chess_960().count());
 For a longer worked example, see [`examples/quickstart.rs`](examples/quickstart.rs)
 or run `cargo run --example quickstart`.
 
+All square indices in the public API are **0-based**. Chess users:
+square 0 is `a1`, square 7 is `h1`. The `chess::file::A`..`chess::file::H`
+constants and `chess::file::of('a')` resolve to those indices.
+
+`Problem::at(idx)` and `Problem::sample(seed)` return `Option<Vec<P>>`
+on the generic type — `None` when the constraint set is unsatisfiable
+(`count() == 0`) or when `idx >= count()`. The chess presets are
+statically non-empty, so `Chess960Problem::sample` returns
+`Vec<Piece>` directly.
+
 ## Constraint primitives
 
 Bring your own piece kind (any `Copy + Eq + Ord + Hash + Debug` type) and
