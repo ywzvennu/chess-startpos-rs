@@ -1,7 +1,7 @@
 //! [`Problem`] — the constraint-satisfaction specification and its
 //! enumerate / count entry points.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use crate::{ColorKind, Constraint, PieceKind, SquareColor};
@@ -159,7 +159,7 @@ impl<P: PieceKind, C: ColorKind> Problem<P, C> {
             });
         }
 
-        let alphabet = self.dedup_alphabet();
+        let alphabet: HashSet<P> = self.dedup_alphabet().into_iter().collect();
         let counts: HashMap<P, usize> = self.constraint.collect_eq_counts().into_iter().collect();
         let check_instance = |p: &P, idx: usize| -> Option<ValidationError> {
             counts
@@ -325,15 +325,17 @@ impl<P: PieceKind, C: ColorKind> Problem<P, C> {
     }
 
     /// Returns the alphabet with duplicates removed, preserving
-    /// first-appearance order.
+    /// first-appearance order. O(n) — uses a `HashSet` to detect
+    /// duplicates.
     fn dedup_alphabet(&self) -> Vec<P> {
-        let mut seen: Vec<P> = Vec::with_capacity(self.pieces.len());
+        let mut seen: HashSet<P> = HashSet::with_capacity(self.pieces.len());
+        let mut ordered: Vec<P> = Vec::with_capacity(self.pieces.len());
         for p in &self.pieces {
-            if !seen.contains(p) {
-                seen.push(*p);
+            if seen.insert(*p) {
+                ordered.push(*p);
             }
         }
-        seen
+        ordered
     }
 
     /// Internal optimisation: when every alphabet member has a
@@ -1112,6 +1114,31 @@ mod tests {
         };
         assert_eq!(problem.count(), 0);
         assert_eq!(problem.sample(0), None);
+    }
+
+    #[test]
+    fn count_op_all_six_variants_filter_correctly() {
+        // 3-square board, alphabet {A, B}. 2^3 = 8 sequences without
+        // any Count-Eq constraint. Pre-compute the count of As in each:
+        // 0:[B,B,B]=0 1:[A,B,B]=1 2:[B,A,B]=1 3:[A,A,B]=2
+        // 4:[B,B,A]=1 5:[A,B,A]=2 6:[B,A,A]=2 7:[A,A,A]=3
+        // → A-counts {0,1,1,2,1,2,2,3} → distribution 1×0, 3×1, 3×2, 1×3.
+        let make = |op: CountOp, value: usize| Problem {
+            num_squares: 3,
+            square_colors: light_dark(3),
+            pieces: vec![Tile::A, Tile::B],
+            constraint: Constraint::Count {
+                piece: Tile::A,
+                op,
+                value,
+            },
+        };
+        assert_eq!(make(CountOp::Eq, 2).count(), 3);
+        assert_eq!(make(CountOp::NotEq, 2).count(), 5); // 8 − 3
+        assert_eq!(make(CountOp::Lt, 2).count(), 4); // counts 0, 1 → 1 + 3
+        assert_eq!(make(CountOp::Le, 2).count(), 7); // 0, 1, 2 → 1 + 3 + 3
+        assert_eq!(make(CountOp::Gt, 1).count(), 4); // 2, 3 → 3 + 1
+        assert_eq!(make(CountOp::Ge, 1).count(), 7); // 1, 2, 3 → 3 + 3 + 1
     }
 
     #[test]
