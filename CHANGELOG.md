@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Builder API
+
+- New `Problem::builder()` returns a `ProblemBuilder<P, C>` for
+  fluent construction. Methods: `squares(n)`, `colors(vec)`,
+  `alternating_colors(a, b)`, `uniform_colors(c)`, `pieces(iter)`,
+  `piece(p)`, `constraint(c)` (chainable, AND-composed),
+  `build()`. The struct-literal API stays a fully supported
+  alternative.
+
 ### Round-2 pre-tag cleanup
 
 - `Problem::with_constraint` and `Chess960Problem::with_constraint`
