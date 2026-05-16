@@ -1,5 +1,5 @@
 //! Generate, count, and sample chess back-rank arrangements under
-//! composable constraints.
+//! composable constraints (Chess960, Chess2880, custom presets).
 //!
 //! The crate is generic — parameterised over a user-defined piece
 //! kind, generic over board size — and built around a small set of

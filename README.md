@@ -7,7 +7,7 @@
 [![MSRV](https://img.shields.io/badge/MSRV-1.80-blue.svg)](Cargo.toml)
 
 Generate, count, and sample chess back-rank arrangements under composable
-constraints.
+constraints (Chess960, Chess2880, custom presets).
 
 The crate provides a generic constraint engine. You describe a problem by
 saying *which pieces, on how many squares, with which colours, satisfying

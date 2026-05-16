@@ -121,7 +121,7 @@ pub enum Constraint<P> {
     /// If either `lhs.1` or `rhs.1` references an instance that
     /// doesn't exist in the arrangement, the constraint is
     /// **unsatisfied** for that arrangement (same convention as
-    /// [`Order`]).
+    /// [`Constraint::Order`]).
     Relative {
         /// Left-hand piece instance.
         lhs: (P, usize),
