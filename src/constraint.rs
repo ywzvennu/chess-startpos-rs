@@ -290,6 +290,124 @@ impl<P: PieceKind, C: ColorKind> Constraint<P, C> {
             _ => {}
         }
     }
+
+    /// Returns a logically-equivalent constraint with redundant
+    /// structure removed.
+    ///
+    /// Every arrangement that satisfies `self` satisfies the
+    /// returned constraint and vice-versa — semantics are preserved
+    /// exactly. The rules applied bottom-up are:
+    ///
+    /// * `And([single])` → `single` (collapse single-child conjunctions).
+    /// * `Or([single])`  → `single` (collapse single-child disjunctions).
+    /// * `Not(Not(x))`   → `x` (eliminate double negation).
+    /// * `Not(And([]))`  → `Or([])` (negation of vacuous truth).
+    /// * `Not(Or([]))`   → `And([])` (negation of vacuous falsity).
+    /// * If any `And` child simplifies to `Or([])` (vacuously false),
+    ///   the whole `And` becomes `Or([])`.
+    /// * If any `Or` child simplifies to `And([])` (vacuously true),
+    ///   the whole `Or` becomes `And([])`.
+    /// * Drop neutral children: `And([])` from inside another `And`,
+    ///   `Or([])` from inside another `Or`.
+    /// * Leaf constraints clone as-is.
+    ///
+    /// The method is idempotent: `c.simplify() == c.simplify().simplify()`.
+    ///
+    /// `simplify` does *not* impose editor-friendly semantics —
+    /// `Or([])` remains the empty disjunction (always false). Callers
+    /// that want to treat in-progress empty branches as no-ops should
+    /// rewrite their tree before calling `simplify`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chess_startpos_rs::{chess::Piece, Constraint, CountOp};
+    ///
+    /// let leaf = Constraint::Count {
+    ///     piece: Piece::King,
+    ///     op: CountOp::Eq,
+    ///     value: 1,
+    /// };
+    /// // `And([leaf])` collapses to `leaf`.
+    /// assert_eq!(
+    ///     Constraint::And(vec![leaf.clone()]).simplify(),
+    ///     leaf
+    /// );
+    /// // Double negation eliminates.
+    /// assert_eq!(
+    ///     Constraint::Not(Box::new(Constraint::Not(Box::new(leaf.clone())))).simplify(),
+    ///     leaf
+    /// );
+    /// // An `Or([])` child collapses the whole `And` to `Or([])`.
+    /// assert_eq!(
+    ///     Constraint::And(vec![leaf.clone(), Constraint::Or(vec![])]).simplify(),
+    ///     Constraint::<Piece>::Or(vec![]),
+    /// );
+    /// ```
+    #[must_use]
+    pub fn simplify(&self) -> Self {
+        match self {
+            Self::And(children) => {
+                let mut acc: Vec<Self> = Vec::with_capacity(children.len());
+                for c in children {
+                    let c = c.simplify();
+                    if is_false(&c) {
+                        return Self::Or(Vec::new());
+                    }
+                    if is_true(&c) {
+                        continue;
+                    }
+                    acc.push(c);
+                }
+                if acc.len() == 1 {
+                    acc.pop().expect("len == 1")
+                } else {
+                    Self::And(acc)
+                }
+            }
+            Self::Or(children) => {
+                let mut acc: Vec<Self> = Vec::with_capacity(children.len());
+                for c in children {
+                    let c = c.simplify();
+                    if is_true(&c) {
+                        return Self::And(Vec::new());
+                    }
+                    if is_false(&c) {
+                        continue;
+                    }
+                    acc.push(c);
+                }
+                if acc.len() == 1 {
+                    acc.pop().expect("len == 1")
+                } else {
+                    Self::Or(acc)
+                }
+            }
+            Self::Not(inner) => {
+                let inner = inner.simplify();
+                if is_true(&inner) {
+                    Self::Or(Vec::new())
+                } else if is_false(&inner) {
+                    Self::And(Vec::new())
+                } else if let Self::Not(grandchild) = inner {
+                    *grandchild
+                } else {
+                    Self::Not(Box::new(inner))
+                }
+            }
+            leaf => leaf.clone(),
+        }
+    }
+}
+
+#[inline]
+fn is_true<P, C>(c: &Constraint<P, C>) -> bool {
+    matches!(c, Constraint::And(v) if v.is_empty())
+}
+
+#[inline]
+fn is_false<P, C>(c: &Constraint<P, C>) -> bool {
+    matches!(c, Constraint::Or(v) if v.is_empty())
 }
 
 /// Returns the square index of the `instance_idx`-th occurrence of
@@ -301,4 +419,164 @@ fn nth_position<P: PieceKind>(arrangement: &[P], piece: &P, instance_idx: usize)
         .enumerate()
         .filter_map(|(i, p)| (p == piece).then_some(i))
         .nth(instance_idx)
+}
+
+#[cfg(test)]
+mod simplify_tests {
+    use super::*;
+    use crate::chess::Piece;
+
+    fn leaf() -> Constraint<Piece> {
+        Constraint::Count {
+            piece: Piece::King,
+            op: CountOp::Eq,
+            value: 1,
+        }
+    }
+
+    fn leaf2() -> Constraint<Piece> {
+        Constraint::At {
+            piece: Piece::Queen,
+            square: 3,
+        }
+    }
+
+    const fn true_<P, C>() -> Constraint<P, C> {
+        Constraint::And(Vec::new())
+    }
+
+    const fn false_<P, C>() -> Constraint<P, C> {
+        Constraint::Or(Vec::new())
+    }
+
+    #[test]
+    fn leaves_simplify_to_themselves() {
+        assert_eq!(leaf().simplify(), leaf());
+        assert_eq!(leaf2().simplify(), leaf2());
+    }
+
+    #[test]
+    fn empty_and_is_identity() {
+        let c: Constraint<Piece> = true_();
+        assert_eq!(c.simplify(), true_());
+    }
+
+    #[test]
+    fn empty_or_is_identity() {
+        let c: Constraint<Piece> = false_();
+        assert_eq!(c.simplify(), false_());
+    }
+
+    #[test]
+    fn single_child_and_unwraps() {
+        let c = Constraint::And(vec![leaf()]);
+        assert_eq!(c.simplify(), leaf());
+    }
+
+    #[test]
+    fn single_child_or_unwraps() {
+        let c = Constraint::Or(vec![leaf()]);
+        assert_eq!(c.simplify(), leaf());
+    }
+
+    #[test]
+    fn double_negation_eliminates() {
+        let c = Constraint::Not(Box::new(Constraint::Not(Box::new(leaf()))));
+        assert_eq!(c.simplify(), leaf());
+    }
+
+    #[test]
+    fn triple_negation_collapses_to_single() {
+        let c = Constraint::Not(Box::new(Constraint::Not(Box::new(Constraint::Not(
+            Box::new(leaf()),
+        )))));
+        assert_eq!(c.simplify(), Constraint::Not(Box::new(leaf())));
+    }
+
+    #[test]
+    fn not_of_true_is_false() {
+        let c: Constraint<Piece> = Constraint::Not(Box::new(true_()));
+        assert_eq!(c.simplify(), false_());
+    }
+
+    #[test]
+    fn not_of_false_is_true() {
+        let c: Constraint<Piece> = Constraint::Not(Box::new(false_()));
+        assert_eq!(c.simplify(), true_());
+    }
+
+    #[test]
+    fn false_propagates_through_and() {
+        let c = Constraint::And(vec![leaf(), false_()]);
+        assert_eq!(c.simplify(), false_());
+    }
+
+    #[test]
+    fn true_propagates_through_or() {
+        let c = Constraint::Or(vec![leaf(), true_()]);
+        assert_eq!(c.simplify(), true_());
+    }
+
+    #[test]
+    fn neutral_true_drops_from_and() {
+        let c = Constraint::And(vec![leaf(), true_()]);
+        assert_eq!(c.simplify(), leaf());
+    }
+
+    #[test]
+    fn neutral_false_drops_from_or() {
+        let c = Constraint::Or(vec![leaf(), false_()]);
+        assert_eq!(c.simplify(), leaf());
+    }
+
+    #[test]
+    fn nested_editor_worst_case() {
+        // And([leaf, Or([Not(Not(leaf2)), Or([])])])
+        // → And([leaf, Or([leaf2])])      (inner Or([]) drops; double Not folds)
+        // → And([leaf, leaf2])             (single-child Or unwraps)
+        let c = Constraint::And(vec![
+            leaf(),
+            Constraint::Or(vec![
+                Constraint::Not(Box::new(Constraint::Not(Box::new(leaf2())))),
+                false_(),
+            ]),
+        ]);
+        let expected = Constraint::And(vec![leaf(), leaf2()]);
+        assert_eq!(c.simplify(), expected);
+    }
+
+    #[test]
+    fn simplify_is_idempotent() {
+        let trees: [Constraint<Piece>; 6] = [
+            leaf(),
+            Constraint::And(vec![leaf(), Constraint::Not(Box::new(false_()))]),
+            Constraint::Or(vec![false_(), Constraint::And(vec![leaf2()])]),
+            Constraint::Not(Box::new(Constraint::Not(Box::new(leaf())))),
+            Constraint::And(vec![Constraint::Or(vec![leaf(), false_()])]),
+            true_(),
+        ];
+        for t in trees {
+            let once = t.simplify();
+            let twice = once.simplify();
+            assert_eq!(once, twice, "not idempotent for {t:?}");
+        }
+    }
+
+    #[test]
+    fn deeply_nested_unsatisfiable_propagates_to_root() {
+        // Or([And([leaf, Or([])])]) → Or([Or([])]) → Or([]) (false drops from Or)
+        let c = Constraint::Or(vec![Constraint::And(vec![leaf(), false_()])]);
+        assert_eq!(c.simplify(), false_());
+    }
+
+    #[test]
+    fn nested_truth_propagates_to_root() {
+        // And([Or([Not(Or([])), leaf])]) → And([Or([And([]), leaf])])
+        // → And([And([])]) (true child collapses Or) → And([]) (single child unwrap)
+        let c = Constraint::And(vec![Constraint::Or(vec![
+            Constraint::Not(Box::new(false_())),
+            leaf(),
+        ])]);
+        assert_eq!(c.simplify(), true_());
+    }
 }
