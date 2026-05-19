@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-05-19
+
+### Added
+
+- `Constraint::simplify(&self) -> Self` returning a logically-equivalent
+  tree with redundant structure removed: single-child `And`/`Or` collapse
+  to their child, `Not(Not(x))` eliminates, `Not` folds over the vacuous
+  true/false constants, and true/false constants propagate through their
+  parent connective (e.g. an `Or([])` child collapses an `And` to
+  `Or([])`). Neutral children are dropped. Strict semantics — `Or([])`
+  remains the empty disjunction. Idempotent. ([#27], [#28])
+
+[#27]: https://github.com/ywzvennu/chess-startpos-rs/issues/27
+[#28]: https://github.com/ywzvennu/chess-startpos-rs/pull/28
+
 ## [0.1.0] — 2026-05-16
 
 Initial public release.
